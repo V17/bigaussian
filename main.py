@@ -4,6 +4,7 @@ import cv2
 import SimpleITK as sitk
 from scipy import ndimage
 from scipy import signal
+from scipy import sparse
 import os
 import timeit
 
@@ -202,6 +203,11 @@ def lineness3D(eigenvalues):
     '''Returns lineness function value for each pixel computed from hessian eigenvalues'''
 
     result = np.zeros([eigenvalues.shape[0], eigenvalues.shape[1], eigenvalues.shape[2]])
+    absmin = np.amax(np.fabs(eigenvalues), axis=3)
+    absmax = np.amax(np.fabs(eigenvalues), axis=3)
+    minval = np.amin(eigenvalues, axis=3)
+    lambda1 = np.multiply(minval, np.equal(minval * (-1), absmax).astype(int))
+
 
     for z in range(eigenvalues.shape[0]):
         for y in range(eigenvalues.shape[1]):
@@ -214,15 +220,66 @@ def lineness3D(eigenvalues):
 
 def max_eig2D(hessian):
     eigenvalues = np.zeros([hessian.shape[0], hessian.shape[1], 2], np.float32)
-    absmax = np.zeros([hessian.shape[0], hessian.shape[1]], np.float32)
-    minval = np.zeros([hessian.shape[0], hessian.shape[1]], np.float32)
-    result = np.zeros([hessian.shape[0], hessian.shape[1]], np.float32)
     eigenvalues[:][:] = np.linalg.eigvals(hessian[:][:])
 
     absmax = np.amax(np.fabs(eigenvalues), axis=2)
     minval = np.amin(eigenvalues, axis=2)
-    result = np.multiply(minval, np.equal(minval * (-1), absmax).astype(int))
+    result = np.multiply(minval, np.equal(minval * (-1), absmax))
     return result * (-1)
+
+def max_eig2D_alt(hessian): #funguje taky, je potencialne srozumitelnejsi ale o kousek pomalejsi
+    eigenvalues = np.zeros([hessian.shape[0], hessian.shape[1], 2], np.float32)
+    eigenvalues[:][:] = np.linalg.eigvals(hessian[:][:])
+    sorted_index = np.argsort(np.fabs(eigenvalues), axis=2)
+    static_index = np.indices((hessian.shape[0], hessian.shape[1], 2))
+
+    eigenvalues = eigenvalues[static_index[0], static_index[1], sorted_index] # tohle nefunguje protoze to je advanced indexing. Jak funguje advanced indexing???
+
+    return (np.transpose(eigenvalues, (2, 0, 1))[1] * (-1)).clip(0)
+
+def lineness3D_alt(eigenvalues):
+    sorted_index = np.argsort(np.fabs(eigenvalues), axis=3)
+    static_index = np.indices((eigenvalues.shape[0], eigenvalues.shape[1], eigenvalues.shape[2], 3))
+    eigenvalues = np.transpose(eigenvalues[static_index[0], static_index[1], static_index[2], sorted_index], (3, 0, 1, 2))
+    eigensum = np.sum(eigenvalues, axis=0)
+    result = np.multiply(np.divide(eigenvalues[1], eigenvalues[2]), np.add(eigenvalues[1], eigenvalues[2])) * (-1)
+
+    eigensum[eigensum >= 0] = 0
+    eigensum[eigensum < 0] = 1
+    result = np.multiply(result, eigensum)
+
+    return result
+
+def lineness3D_alt_old(eigenvalues):
+    l1 = np.transpose(eigenvalues, (3, 0, 1, 2))[0] #TODO nepocitat pro kazdy krok, bacha, soucet musi bit mensi nez 0, nikoliv jen prvni hodnota
+    l2 = np.transpose(eigenvalues, (3, 0, 1, 2))[1]
+    l3 = np.transpose(eigenvalues, (3, 0, 1, 2))[2]
+
+    absmax = np.amax(np.fabs(eigenvalues), axis=3)
+    absmin = np.amin(np.fabs(eigenvalues), axis=3)
+    minval = np.amin(eigenvalues, axis=3)
+
+    print "eigenvalues", eigenvalues.shape, "lx", l1.shape, "absmax", absmax.shape, "absmin", absmin.shape
+
+    l1 = np.multiply(l1, np.logical_not(np.equal(np.fabs(l1), absmax).astype(int)))
+    print l1[0]
+    l1 = np.multiply(l1, np.logical_not(np.equal(np.fabs(l1), absmin).astype(int)))
+    l2 = np.multiply(l2, np.logical_not(np.equal(np.fabs(l2), absmax).astype(int)))
+    l2 = np.multiply(l2, np.logical_not(np.equal(np.fabs(l2), absmin).astype(int)))
+    l3 = np.multiply(l3, np.logical_not(np.equal(np.fabs(l3), absmax).astype(int)))
+    l3 = np.multiply(l3, np.logical_not(np.equal(np.fabs(l3), absmin).astype(int)))
+    med = np.add(np.add(l1, l2), l3)
+    print "med", med.shape
+
+    maxneg = np.multiply(minval, np.equal(minval * (-1), absmax).astype(int))
+    maxneg = np.add(np.multiply(np.ones_like(maxneg), np.logical_not(np.equal(minval * (-1), absmax).astype(int))) * (-1), maxneg)
+    result = np.multiply(np.divide(med, maxneg), np.add(med, maxneg)) * (-1)
+
+
+    print np.amax(med), np.amin(med)
+
+
+    return result
 
 def multiscale2DBG(image, sigmaf, sigmab, step, nsteps):
     '''Implements multiscale filtering for 2D images: for each step the image is blurred using accordingly sized
@@ -252,7 +309,7 @@ def multiscale2DBG(image, sigmaf, sigmab, step, nsteps):
         stime = timeit.default_timer()
 
         #img_e = eigenvalues2D(img_hessian) #compute the eigenvalues from hessian
-        img_e = max_eig2D(img_hessian)
+        img_e = max_eig2D_alt(img_hessian)
 
         print "eigenvalues and lineness computed in", timeit.default_timer() - stime
 
@@ -297,7 +354,7 @@ def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
         print "eigenvalues computed in", timeit.default_timer() - stime
         stime = timeit.default_timer()
 
-        img_lineness = lineness3D(img_eigenvalues)
+        img_lineness = lineness3D_alt(img_eigenvalues)
 
         print "lineness filter response computed in", timeit.default_timer() - stime
 
@@ -310,17 +367,17 @@ def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
 ################################################
 # 2D filtrovani
 #
-img = cv2.imread('gafa.jpg', 0)
-dst = multiscale2DBG(img, 0.8, 0.3, 0.1, 3)
-cv2.imwrite("gafa_speedtest2.jpg", dst)
+#img = cv2.imread('gafa.jpg', 0)
+#dst = multiscale2DBG(img, 0.8, 0.3, 0.1, 3)
+#cv2.imwrite("gafa_alt.jpg", dst)
 #
 #3D filtrovani
 #
-#img3d = sitk.ReadImage('zmenseno.mha')
-#array3d = sitk.GetArrayFromImage(img3d)
-#dst = multiscale3DBG(array3d, 2, 1, 0.5, 2)
-#sitk_img = sitk.GetImageFromArray(dst)
-#sitk.WriteImage(sitk_img, os.path.join("./", 'zmenseno_timetest.mha'))
+img3d = sitk.ReadImage('zmenseno.mha')
+array3d = sitk.GetArrayFromImage(img3d)
+dst = multiscale3DBG(array3d, 1, 0.4, 0.2, 2)
+sitk_img = sitk.GetImageFromArray(dst)
+sitk.WriteImage(sitk_img, os.path.join("./", 'zmenseno_alt.mha'))
 
 # PROBLEMY:
 #
