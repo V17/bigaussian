@@ -8,6 +8,7 @@ import os
 import timeit
 
 
+
 def biGaussianKernel1D(sigma, sigmab, ksize=0):
     '''Generates a 1D bigaussian kernel'''
 
@@ -189,24 +190,6 @@ def hessian3D(image):
 
     return hessianmatrix
 
-def eigenvalues2D(hessian):
-    '''Computes eigenvalues of a 2x2 hessian of each pixel and returns a matrix with the largest (absolute) eigenvalue for each pixel'''
-
-    stime = timeit.default_timer()
-    eigenvalues = np.zeros([hessian.shape[0], hessian.shape[1], 2], np.float32)
-    result = np.zeros([hessian.shape[0], hessian.shape[1]], np.float32)
-
-    eigenvalues[:][:] = np.linalg.eigvals(hessian[:][:])
-
-    print "eigenvalues computed in", timeit.default_timer() - stime
-
-    for y in range(eigenvalues.shape[0]):
-        for x in range(eigenvalues.shape[1]):
-            eigenvalues[y][x] = sorted(eigenvalues[y][x], key=abs)
-            result[y][x] = eigenvalues[y][x][1].clip(max=0) * (-1)
-
-    return result
-
 def eigenvalues3D(hessian):
     '''Returns eigenvalues of a 3x3 hessian of each pixel'''
 
@@ -228,6 +211,18 @@ def lineness3D(eigenvalues):
                     result[z][y][x] = (-1) * (eigenvalues[z][y][x][1] / eigenvalues[z][y][x][2]) * (eigenvalues[z][y][x][1] + [eigenvalues[z][y][x][2]])
 
     return result
+
+def max_eig2D(hessian):
+    eigenvalues = np.zeros([hessian.shape[0], hessian.shape[1], 2], np.float32)
+    absmax = np.zeros([hessian.shape[0], hessian.shape[1]], np.float32)
+    minval = np.zeros([hessian.shape[0], hessian.shape[1]], np.float32)
+    result = np.zeros([hessian.shape[0], hessian.shape[1]], np.float32)
+    eigenvalues[:][:] = np.linalg.eigvals(hessian[:][:])
+
+    absmax = np.amax(np.fabs(eigenvalues), axis=2)
+    minval = np.amin(eigenvalues, axis=2)
+    result = np.multiply(minval, np.equal(minval * (-1), absmax).astype(int))
+    return result * (-1)
 
 def multiscale2DBG(image, sigmaf, sigmab, step, nsteps):
     '''Implements multiscale filtering for 2D images: for each step the image is blurred using accordingly sized
@@ -256,7 +251,8 @@ def multiscale2DBG(image, sigmaf, sigmab, step, nsteps):
         print "hessian computed in", timeit.default_timer() - stime
         stime = timeit.default_timer()
 
-        img_e = eigenvalues2D(img_hessian) #compute the eigenvalues from hessian
+        #img_e = eigenvalues2D(img_hessian) #compute the eigenvalues from hessian
+        img_e = max_eig2D(img_hessian)
 
         print "eigenvalues and lineness computed in", timeit.default_timer() - stime
 
@@ -314,9 +310,9 @@ def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
 ################################################
 # 2D filtrovani
 #
-img = cv2.imread('polstar.jpg', 0)
-dst = multiscale2DBG(img, 1.2, 0.6, 0.3, 3)
-cv2.imwrite("polstar_filtered_coarse.jpg", dst)
+img = cv2.imread('gafa.jpg', 0)
+dst = multiscale2DBG(img, 0.8, 0.3, 0.1, 3)
+cv2.imwrite("gafa_speedtest2.jpg", dst)
 #
 #3D filtrovani
 #
