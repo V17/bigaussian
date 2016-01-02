@@ -169,12 +169,12 @@ def hessian3D(image):
     d2yz = np.array([[[-0.25], [0], [0.25]], [[0], [0], [0]], [[-0.25], [0], [0.25]]])
 
     #magnitudes
-    imagexx = signal.fftconvolve(image, d2xx, mode="same")
-    imageyy = signal.fftconvolve(image, d2yy, mode="same")
-    imagezz = signal.fftconvolve(image, d2zz, mode="same")
-    imagexy = signal.fftconvolve(image, d2xy, mode="same")
-    imagexz = signal.fftconvolve(image, d2xz, mode="same")
-    imageyz = signal.fftconvolve(image, d2yz, mode="same")
+    imagexx = ndimage.filters.convolve(image, d2xx)
+    imageyy = ndimage.filters.convolve(image, d2yy)
+    imagezz = ndimage.filters.convolve(image, d2zz)
+    imagexy = ndimage.filters.convolve(image, d2xy)
+    imagexz = ndimage.filters.convolve(image, d2xz)
+    imageyz = ndimage.filters.convolve(image, d2yz)
 
     hessian = np.empty([3, 3, image.shape[0], image.shape[1], image.shape[2]])
     hessian[0][0][:][:][:] = imagexx
@@ -339,7 +339,7 @@ def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
         print "bigaussian kernel generated in", timeit.default_timer() - stime
         stime = timeit.default_timer()
 
-        img_filtered = signal.fftconvolve(image, kernel, mode="same")
+        img_filtered = ndimage.filters.convolve(image, kernel)
 
         print "image filtered in", timeit.default_timer() - stime
         stime = timeit.default_timer()
