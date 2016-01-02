@@ -329,7 +329,7 @@ def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
     eigenvalue intensity is larger than the intensity in the output image (initialized with zeros), it is used
     as the output value for that pixel.'''
 
-    image_out = np.zeros_like(image)
+    image_out = np.zeros_like(image, dtype=np.float16)
     for i in range(nsteps):
 
         stime = timeit.default_timer()
@@ -349,19 +349,19 @@ def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
         print "hessian computed in", timeit.default_timer() - stime
         stime = timeit.default_timer()
 
-        img_eigenvalues = eigenvalues3D(img_hessian)
+        img_eigenvalues = eigenvalues3D(img_hessian).astype(np.float16)
 
         print "eigenvalues computed in", timeit.default_timer() - stime
         stime = timeit.default_timer()
 
-        img_lineness = lineness3D_alt(img_eigenvalues)
+        img_lineness = lineness3D_alt(img_eigenvalues).astype(np.float16)
 
         print "lineness filter response computed in", timeit.default_timer() - stime
 
         image_out = np.maximum(image_out, img_lineness)
 
     max = np.amax(image_out)
-    return ((image_out/max)*255).astype(int)
+    return ((image_out/max)*255).astype(np.uint8)
 
 
 ################################################
@@ -373,11 +373,11 @@ def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
 #
 #3D filtrovani
 #
-img3d = sitk.ReadImage('zmenseno.mha')
+img3d = sitk.ReadImage('Normal001-MRA.mha')
 array3d = sitk.GetArrayFromImage(img3d)
-dst = multiscale3DBG(array3d, 1, 0.4, 0.2, 2)
+dst = multiscale3DBG(array3d, 1, 0.4, 0.2, 3)
 sitk_img = sitk.GetImageFromArray(dst)
-sitk.WriteImage(sitk_img, os.path.join("./", 'zmenseno_alt.mha'))
+sitk.WriteImage(sitk_img, os.path.join("./", 'normal001/test.mha'))
 
 # PROBLEMY:
 #
