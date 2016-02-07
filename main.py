@@ -7,7 +7,7 @@ from scipy import signal
 from scipy import sparse
 import os
 import timeit
-
+import sys
 
 
 def biGaussianKernel1D(sigma, sigmab, ksize=0):
@@ -176,16 +176,16 @@ def hessian3D(image):
     imagexz = ndimage.filters.convolve(image, d2xz)
     imageyz = ndimage.filters.convolve(image, d2yz)
 
-    hessian = np.empty([3, 3, image.shape[0], image.shape[1], image.shape[2]])
-    hessian[0][0][:][:][:] = imagexx
-    hessian[0][1][:][:][:] = imagexy
-    hessian[0][2][:][:][:] = imagexz
-    hessian[1][0][:][:][:] = imagexy
-    hessian[1][1][:][:][:] = imageyy
-    hessian[1][2][:][:][:] = imageyz
-    hessian[2][0][:][:][:] = imagexz
-    hessian[2][1][:][:][:] = imageyz
-    hessian[2][2][:][:][:] = imagezz
+    hessian = np.empty([3, 3, image.shape[0], image.shape[1], image.shape[2]], dtype=np.float16)
+    hessian[0][0][:][:][:] = imagexx.astype(np.float16)
+    hessian[0][1][:][:][:] = imagexy.astype(np.float16)
+    hessian[0][2][:][:][:] = imagexz.astype(np.float16)
+    hessian[1][0][:][:][:] = imagexy.astype(np.float16)
+    hessian[1][1][:][:][:] = imageyy.astype(np.float16)
+    hessian[1][2][:][:][:] = imageyz.astype(np.float16)
+    hessian[2][0][:][:][:] = imagexz.astype(np.float16)
+    hessian[2][1][:][:][:] = imageyz.astype(np.float16)
+    hessian[2][2][:][:][:] = imagezz.astype(np.float16)
 
     hessianmatrix = np.transpose(hessian, (2, 3, 4, 0, 1))
 
@@ -194,8 +194,8 @@ def hessian3D(image):
 def eigenvalues3D(hessian):
     '''Returns eigenvalues of a 3x3 hessian of each pixel'''
 
-    eigenvalues = np.zeros([hessian.shape[0], hessian.shape[1], hessian.shape[2], 3], float)
-    eigenvalues[:][:][:] = np.linalg.eigvals(hessian[:][:][:])
+    #eigenvalues = np.zeros([hessian.shape[0], hessian.shape[1], hessian.shape[2], 3], dtype=np.float32)
+    eigenvalues = np.linalg.eigvals(hessian.astype(np.float32))
 
     return eigenvalues
 
@@ -339,7 +339,7 @@ def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
         print "bigaussian kernel generated in", timeit.default_timer() - stime
         stime = timeit.default_timer()
 
-        img_filtered = ndimage.filters.convolve(image, kernel)
+        img_filtered = ndimage.filters.convolve(image.astype(np.float32), kernel.astype(np.float32))
 
         print "image filtered in", timeit.default_timer() - stime
         stime = timeit.default_timer()
@@ -364,20 +364,29 @@ def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
     return ((image_out/max)*255).astype(np.uint8)
 
 
-################################################
-# 2D filtrovani
-#
-#img = cv2.imread('gafa.jpg', 0)
-#dst = multiscale2DBG(img, 0.8, 0.3, 0.1, 3)
-#cv2.imwrite("gafa_alt.jpg", dst)
+def filter3d(imagein, imageout):
+    img3d = sitk.GetArrayFromImage(sitk.ReadImage(imagein))
+    dst = multiscale3DBG(img3d, 1, 0.4, 0.2, 2)
+    sitk_img = sitk.GetImageFromArray(dst)
+    sitk.WriteImage(sitk_img, os.path.join("./", imageout))
+
+def filter2d(imagein, imageout):
+    img2d = sitk.ReadImage(imagein)
+    array2d = sitk.GetArrayFromImage(img2d)
+    if len(array2d.shape) == 3:
+        array2d = np.mean(array2d, -1)
+
+    dst = multiscale2DBG(array2d, 0.8, 0.3, 0.1, 3)
+    sitk_img2d = sitk.GetImageFromArray(dst)
+    sitk.WriteImage(sitk_img2d, os.path.join("./", imageout))
 #
 #3D filtrovani
 #
-img3d = sitk.ReadImage('Normal001-MRA.mha')
-array3d = sitk.GetArrayFromImage(img3d)
-dst = multiscale3DBG(array3d, 1, 0.4, 0.2, 3)
-sitk_img = sitk.GetImageFromArray(dst)
-sitk.WriteImage(sitk_img, os.path.join("./", 'normal001/test.mha'))
+#img3d = sitk.ReadImage('MRA-1.mha')
+#array3d = sitk.GetArrayFromImage(img3d)
+#dst = multiscale3DBG(array3d, 1, 0.4, 0.2, 3)
+#sitk_img = sitk.GetImageFromArray(dst)
+#sitk.WriteImage(sitk_img, os.path.join("./", 'validtest.mha'))
 
 # PROBLEMY:
 #
