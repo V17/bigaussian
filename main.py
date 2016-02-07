@@ -212,18 +212,18 @@ def max_eig2D_alt(hessian):
 
 def lineness3D(eigenvalues):
     '''Computes the 3D lineness function from eigenvalues for each pixel'''
-    np.seterr(invalid='ignore') #function sometimes raises a division by zero warning, but this is handled by nan_to_num() conversion
     sorted_index = np.argsort(np.fabs(eigenvalues), axis=3)
     static_index = np.indices((eigenvalues.shape[0], eigenvalues.shape[1], eigenvalues.shape[2], 3))
     eigenvalues = np.transpose(eigenvalues[static_index[0], static_index[1], static_index[2], sorted_index], (3, 0, 1, 2))
     eigensum = np.sum(eigenvalues, axis=0)
+    np.seterr(invalid='ignore') #function sometimes raises a division by zero warning, but this is ignored here and handled by nan_to_num() conversion
     result = np.multiply(np.nan_to_num(np.divide(eigenvalues[1], eigenvalues[2])), np.add(eigenvalues[1], eigenvalues[2])) * (-1)
+    np.seterr(invalid='warn')
 
     eigensum[eigensum >= 0] = 0
     eigensum[eigensum < 0] = 1
     result = np.multiply(result, eigensum)
 
-    np.seterr(invalid='warn')
     return result
 
 def multiscale2DBG(image, sigmaf, sigmab, step, nsteps):
@@ -248,24 +248,20 @@ def multiscale2DBG(image, sigmaf, sigmab, step, nsteps):
         print i+1, "- image filtered in", timeit.default_timer() - stime, "s"
         stime = timeit.default_timer()
 
-        img_hessian = hessian2D(img_filtered) #compute the hessian
+        img_hessian = hessian2D(img_filtered)
 
         print i+1, "- hessian computed in", timeit.default_timer() - stime, "s"
         stime = timeit.default_timer()
 
-        #img_e = eigenvalues2D(img_hessian) #compute the eigenvalues from hessian
         img_e = max_eig2D_alt(img_hessian)
 
         print i+1, "- eigenvalues and lineness computed in", timeit.default_timer() - stime, "s"
 
-
-        #print "eigenvalues max, min", np.amax(img_e), np.amin(img_e)
         image_out = np.maximum(image_out, img_e) #compare to output image and take the higher intensity pixels
 
     max = np.amax(image_out)
-    #print "maximum image_out pred normalizaci", max
     image_out *= (255.0 / max)
-    #print "maximum image_out po normalizaci", np.amax(image_out)
+
     return image_out.astype(np.uint8) #normalize the image to 0-255 and return
 
 def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
@@ -281,27 +277,27 @@ def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
 
         kernel = biGaussianKernel3D(sigmaf + (i * step), sigmab + (i * step / 2))
 
-        print "bigaussian kernel generated in", timeit.default_timer() - stime
+        print i+1, "- bigaussian kernel generated in", timeit.default_timer() - stime, "s"
         stime = timeit.default_timer()
 
         img_filtered = ndimage.filters.convolve(image.astype(np.float32), kernel.astype(np.float32))
 
-        print "image filtered in", timeit.default_timer() - stime
+        print i+1, "- image filtered in", timeit.default_timer() - stime, "s"
         stime = timeit.default_timer()
 
         img_hessian = hessian3D(img_filtered)
 
-        print "hessian computed in", timeit.default_timer() - stime
+        print i+1, "- hessian computed in", timeit.default_timer() - stime, "s"
         stime = timeit.default_timer()
 
         img_eigenvalues = eigenvalues3D(img_hessian).astype(np.float16)
 
-        print "eigenvalues computed in", timeit.default_timer() - stime
+        print i+1, "- eigenvalues computed in", timeit.default_timer() - stime, "s"
         stime = timeit.default_timer()
 
         img_lineness = lineness3D(img_eigenvalues).astype(np.float16)
 
-        print "lineness filter response computed in", timeit.default_timer() - stime
+        print i+1, "- lineness filter response computed in", timeit.default_timer() - stime, "s"
 
         image_out = np.maximum(image_out, img_lineness)
 
@@ -321,11 +317,11 @@ def filter2d(imagein, imageout, sigma_foreground=1, sigma_background=0.4, step_s
     img2d = sitk.ReadImage(imagein)
     array2d = sitk.GetArrayFromImage(img2d)
     if len(array2d.shape) == 3:
-        array2d = np.mean(array2d, -1)
+        array2d = np.mean(array2d, -1) #converts to grayscale
 
     dst = multiscale2DBG(array2d, sigma_foreground, sigma_background, step_size, number_steps)
     sitk_img2d = sitk.GetImageFromArray(dst)
     sitk.WriteImage(sitk_img2d, os.path.join("./", imageout))
 
-#filter2d('gafa.jpg', 'gafa_g3.jpg')
-#filter3d('MRA-1.mha', 'MRA-1_3d_test_final.mha')
+#filter2d('vstup2D.jpg', 'vstup2D.jpg')
+#filter3d('vstup3D.mha', 'vystup3D.mha')
