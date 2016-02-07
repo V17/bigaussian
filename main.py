@@ -1,14 +1,16 @@
 __author__ = 'Vojtech Vozab'
 import numpy as np
-import cv2
 import SimpleITK as sitk
 from scipy import ndimage
-from scipy import signal
-from scipy import sparse
 import os
 import timeit
-import sys
 
+
+def getGaussianKernel1d(n, sigma):
+    '''Generates a 1D gaussian kernel using a built-in filter and a dirac impulse'''
+    dirac = np.zeros(n)
+    dirac[(n-1)/2] = 1
+    return ndimage.filters.gaussian_filter1d(dirac, sigma)
 
 def biGaussianKernel1D(sigma, sigmab, ksize=0):
     '''Generates a 1D bigaussian kernel'''
@@ -27,8 +29,9 @@ def biGaussianKernel1D(sigma, sigmab, ksize=0):
     c0 = (np.exp(-0.5) / np.sqrt(2*np.pi)) * ((float(sigmab) / float(sigma)) - 1) * (1 / float(sigma))
     k = (float(sigmab**2) / float(sigma**2))
 
-    kernel = cv2.getGaussianKernel(ksize, sigma) + c0
-    kernelb = cv2.getGaussianKernel(ksize, sigmab) * k
+    kernel = getGaussianKernel1d(ksize, sigma) + c0
+    kernelb = getGaussianKernel1d(ksize, sigmab) * k
+
     kernel[0 : ((ksize-1) / 2) - sigma] = kernelb[sigma-sigmab : ((ksize-1) / 2) - sigmab]
     kernel[((ksize-1) / 2) + sigma : ksize] = kernelb[((ksize-1) / 2) + sigmab : ksize + sigmab - sigma]
     kernel_sum = sum(kernel)
@@ -37,7 +40,7 @@ def biGaussianKernel1D(sigma, sigmab, ksize=0):
     return kernel_normalized
 
 def biGaussianKernel2D(sigma, sigmab, ksize=0):
-    '''Generates a 2D bigaussian kernel from a 1D kernel using polar coordinates'''
+    '''Generates a 2D bigaussian kernel from 1D gaussian kernels using polar coordinates'''
 
     if (sigma <= 0) | (sigmab <= 0) | (ksize < 0):
         print "All arguments have to be larger than 0"
@@ -56,8 +59,10 @@ def biGaussianKernel2D(sigma, sigmab, ksize=0):
 
     c0 = (np.exp(-0.5) / np.sqrt(2*np.pi)) * ((float(sigmab) / float(sigma)) - 1) * (1 / float(sigma))
     k = (float(sigmab**2) / float(sigma**2))
-    kernelf = cv2.getGaussianKernel(ksize, sigma) + c0
-    kernelb = cv2.getGaussianKernel(ksize*2, sigmab) * k
+
+    kernelf = np.asarray(getGaussianKernel1d(ksize, sigma)) + c0
+    kernelb = np.asarray(getGaussianKernel1d(ksize*2, sigmab)) * k
+
     kernel2D = np.zeros([ksize, ksize])
 
     for y in range((ksize+1)/2-1, ksize-1):
@@ -80,7 +85,7 @@ def biGaussianKernel2D(sigma, sigmab, ksize=0):
     return kernel2D
 
 def biGaussianKernel3D(sigma, sigmab, ksize=0):
-    '''Generates a 3D bigaussian kernel from a 1D kernel using spherical coordinates'''
+    '''Generates a 3D bigaussian kernel from 1D gaussian kernels using spherical coordinates'''
 
     if (sigma <= 0) | (sigmab <= 0) | (ksize < 0):
         print "All arguments have to be larger than 0"
@@ -99,8 +104,9 @@ def biGaussianKernel3D(sigma, sigmab, ksize=0):
 
     c0 = (np.exp(-0.5) / np.sqrt(2*np.pi)) * ((float(sigmab) / float(sigma)) - 1) * (1 / float(sigma))
     k = (float(sigmab**2) / float(sigma**2))
-    kernelf = cv2.getGaussianKernel(ksize, sigma) + c0
-    kernelb = cv2.getGaussianKernel(ksize*2, sigmab) * k
+
+    kernelf = getGaussianKernel1d(ksize, sigma) + c0
+    kernelb = getGaussianKernel1d(ksize*2, sigmab) * k
     kernel3D = np.zeros([ksize, ksize, ksize])
 
     for y in range((ksize+1)/2-1, ksize-1):
@@ -132,7 +138,7 @@ def biGaussianKernel3D(sigma, sigmab, ksize=0):
     return kernel3D
 
 def hessian2D(image):
-    '''Returns a hessian matrix for each pixel in a 2D image'''
+    '''Returns a matrix of hessian matrices for each pixel in a 2D image'''
 
     #kernels
     d2xx = np.array([[1, -2, 1]])
@@ -140,14 +146,9 @@ def hessian2D(image):
     d2xy = np.array([[1, 0, -1], [0, 0, 0], [-1, 0, 1]]) * 0.25
 
     #magnitudes
-    imagexx = cv2.filter2D(image, cv2.CV_32F, d2xx)
-    #print "imagexx max, min", np.amax(imagexx), np.amin(imagexx)
-    imagexy = cv2.filter2D(image, cv2.CV_32F, d2xy)
-    imageyy = cv2.filter2D(image, cv2.CV_32F, d2yy)
-
-    #imagexx = signal.fftconvolve(image, d2xx, mode="same")
-    #imageyy = signal.fftconvolve(image, d2yy, mode="same")
-    #imagexy = signal.fftconvolve(image, d2xy, mode="same")
+    imagexx = ndimage.filters.convolve(image, d2xx)
+    imagexy = ndimage.filters.convolve(image, d2xy)
+    imageyy = ndimage.filters.convolve(image, d2yy)
 
     hessian = np.empty([2, 2, image.shape[0], image.shape[1]])
     hessian[0][0][:][:] = imagexx
@@ -158,7 +159,7 @@ def hessian2D(image):
     return np.transpose(hessian, (2, 3, 0, 1))
 
 def hessian3D(image):
-    '''Returns a hessian matrix for each pixel in a 3D image'''
+    '''Returns a matrix of hessian matrices for each pixel in a 3D image'''
 
     #kernels
     d2xx = np.array([[[1, -2, 1]]])
@@ -192,93 +193,37 @@ def hessian3D(image):
     return hessianmatrix
 
 def eigenvalues3D(hessian):
-    '''Returns eigenvalues of a 3x3 hessian of each pixel'''
+    '''Returns a matrix of eigenvalues of a 3x3 hessian matrix of each pixel'''
 
-    #eigenvalues = np.zeros([hessian.shape[0], hessian.shape[1], hessian.shape[2], 3], dtype=np.float32)
     eigenvalues = np.linalg.eigvals(hessian.astype(np.float32))
 
     return eigenvalues
 
-def lineness3D(eigenvalues):
-    '''Returns lineness function value for each pixel computed from hessian eigenvalues'''
-
-    result = np.zeros([eigenvalues.shape[0], eigenvalues.shape[1], eigenvalues.shape[2]])
-    absmin = np.amax(np.fabs(eigenvalues), axis=3)
-    absmax = np.amax(np.fabs(eigenvalues), axis=3)
-    minval = np.amin(eigenvalues, axis=3)
-    lambda1 = np.multiply(minval, np.equal(minval * (-1), absmax).astype(int))
-
-
-    for z in range(eigenvalues.shape[0]):
-        for y in range(eigenvalues.shape[1]):
-            for x in range(eigenvalues.shape[2]):
-                eigenvalues[z][y][x] = sorted(eigenvalues[z][y][x], key=abs)
-                if np.sum(eigenvalues[z][y][x]) < 0:
-                    result[z][y][x] = (-1) * (eigenvalues[z][y][x][1] / eigenvalues[z][y][x][2]) * (eigenvalues[z][y][x][1] + [eigenvalues[z][y][x][2]])
-
-    return result
-
-def max_eig2D(hessian):
-    eigenvalues = np.zeros([hessian.shape[0], hessian.shape[1], 2], np.float32)
-    eigenvalues[:][:] = np.linalg.eigvals(hessian[:][:])
-
-    absmax = np.amax(np.fabs(eigenvalues), axis=2)
-    minval = np.amin(eigenvalues, axis=2)
-    result = np.multiply(minval, np.equal(minval * (-1), absmax))
-    return result * (-1)
-
-def max_eig2D_alt(hessian): #funguje taky, je potencialne srozumitelnejsi ale o kousek pomalejsi
+def max_eig2D_alt(hessian):
+    '''Returns the eigenvalue with the largest absolute value for each pixel, sets negative values to zero'''
     eigenvalues = np.zeros([hessian.shape[0], hessian.shape[1], 2], np.float32)
     eigenvalues[:][:] = np.linalg.eigvals(hessian[:][:])
     sorted_index = np.argsort(np.fabs(eigenvalues), axis=2)
     static_index = np.indices((hessian.shape[0], hessian.shape[1], 2))
 
-    eigenvalues = eigenvalues[static_index[0], static_index[1], sorted_index] # tohle nefunguje protoze to je advanced indexing. Jak funguje advanced indexing???
+    eigenvalues = eigenvalues[static_index[0], static_index[1], sorted_index]
 
     return (np.transpose(eigenvalues, (2, 0, 1))[1] * (-1)).clip(0)
 
-def lineness3D_alt(eigenvalues):
+def lineness3D(eigenvalues):
+    '''Computes the 3D lineness function from eigenvalues for each pixel'''
+    np.seterr(invalid='ignore') #function sometimes raises a division by zero warning, but this is handled by nan_to_num() conversion
     sorted_index = np.argsort(np.fabs(eigenvalues), axis=3)
     static_index = np.indices((eigenvalues.shape[0], eigenvalues.shape[1], eigenvalues.shape[2], 3))
     eigenvalues = np.transpose(eigenvalues[static_index[0], static_index[1], static_index[2], sorted_index], (3, 0, 1, 2))
     eigensum = np.sum(eigenvalues, axis=0)
-    result = np.multiply(np.divide(eigenvalues[1], eigenvalues[2]), np.add(eigenvalues[1], eigenvalues[2])) * (-1)
+    result = np.multiply(np.nan_to_num(np.divide(eigenvalues[1], eigenvalues[2])), np.add(eigenvalues[1], eigenvalues[2])) * (-1)
 
     eigensum[eigensum >= 0] = 0
     eigensum[eigensum < 0] = 1
     result = np.multiply(result, eigensum)
 
-    return result
-
-def lineness3D_alt_old(eigenvalues):
-    l1 = np.transpose(eigenvalues, (3, 0, 1, 2))[0] #TODO nepocitat pro kazdy krok, bacha, soucet musi bit mensi nez 0, nikoliv jen prvni hodnota
-    l2 = np.transpose(eigenvalues, (3, 0, 1, 2))[1]
-    l3 = np.transpose(eigenvalues, (3, 0, 1, 2))[2]
-
-    absmax = np.amax(np.fabs(eigenvalues), axis=3)
-    absmin = np.amin(np.fabs(eigenvalues), axis=3)
-    minval = np.amin(eigenvalues, axis=3)
-
-    print "eigenvalues", eigenvalues.shape, "lx", l1.shape, "absmax", absmax.shape, "absmin", absmin.shape
-
-    l1 = np.multiply(l1, np.logical_not(np.equal(np.fabs(l1), absmax).astype(int)))
-    print l1[0]
-    l1 = np.multiply(l1, np.logical_not(np.equal(np.fabs(l1), absmin).astype(int)))
-    l2 = np.multiply(l2, np.logical_not(np.equal(np.fabs(l2), absmax).astype(int)))
-    l2 = np.multiply(l2, np.logical_not(np.equal(np.fabs(l2), absmin).astype(int)))
-    l3 = np.multiply(l3, np.logical_not(np.equal(np.fabs(l3), absmax).astype(int)))
-    l3 = np.multiply(l3, np.logical_not(np.equal(np.fabs(l3), absmin).astype(int)))
-    med = np.add(np.add(l1, l2), l3)
-    print "med", med.shape
-
-    maxneg = np.multiply(minval, np.equal(minval * (-1), absmax).astype(int))
-    maxneg = np.add(np.multiply(np.ones_like(maxneg), np.logical_not(np.equal(minval * (-1), absmax).astype(int))) * (-1), maxneg)
-    result = np.multiply(np.divide(med, maxneg), np.add(med, maxneg)) * (-1)
-
-
-    print np.amax(med), np.amin(med)
-
-
+    np.seterr(invalid='warn')
     return result
 
 def multiscale2DBG(image, sigmaf, sigmab, step, nsteps):
@@ -295,23 +240,23 @@ def multiscale2DBG(image, sigmaf, sigmab, step, nsteps):
 
         kernel = biGaussianKernel2D(sigmaf + (i * step), sigmab + (i * step / 2)) #generate the bigaussian kernel for each step
 
-        print "bigaussian kernel generated in", timeit.default_timer() - stime
+        print i+1, "- bigaussian kernel generated in", timeit.default_timer() - stime, "s"
         stime = timeit.default_timer()
 
-        img_filtered = cv2.filter2D(image, -1, kernel)
+        img_filtered = ndimage.filters.convolve(image, kernel)
 
-        print "image filtered in", timeit.default_timer() - stime
+        print i+1, "- image filtered in", timeit.default_timer() - stime, "s"
         stime = timeit.default_timer()
 
         img_hessian = hessian2D(img_filtered) #compute the hessian
 
-        print "hessian computed in", timeit.default_timer() - stime
+        print i+1, "- hessian computed in", timeit.default_timer() - stime, "s"
         stime = timeit.default_timer()
 
         #img_e = eigenvalues2D(img_hessian) #compute the eigenvalues from hessian
         img_e = max_eig2D_alt(img_hessian)
 
-        print "eigenvalues and lineness computed in", timeit.default_timer() - stime
+        print i+1, "- eigenvalues and lineness computed in", timeit.default_timer() - stime, "s"
 
 
         #print "eigenvalues max, min", np.amax(img_e), np.amin(img_e)
@@ -325,8 +270,8 @@ def multiscale2DBG(image, sigmaf, sigmab, step, nsteps):
 
 def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
     '''Implements multiscale filtering for 3D images: for each step the image is blurred using accordingly sized
-    bigaussian, hessian matrix is computed for each pixel and the largest (absolute) eigenvalue is found. If the
-    eigenvalue intensity is larger than the intensity in the output image (initialized with zeros), it is used
+    bigaussian, hessian matrix is computed for each pixel and the lineness function is computed from its eigenvalues.
+    If the lineness intensity is larger than the intensity in the output image (initialized with zeros), it is used
     as the output value for that pixel.'''
 
     image_out = np.zeros_like(image, dtype=np.float16)
@@ -354,7 +299,7 @@ def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
         print "eigenvalues computed in", timeit.default_timer() - stime
         stime = timeit.default_timer()
 
-        img_lineness = lineness3D_alt(img_eigenvalues).astype(np.float16)
+        img_lineness = lineness3D(img_eigenvalues).astype(np.float16)
 
         print "lineness filter response computed in", timeit.default_timer() - stime
 
@@ -364,33 +309,23 @@ def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
     return ((image_out/max)*255).astype(np.uint8)
 
 
-def filter3d(imagein, imageout):
+def filter3d(imagein, imageout, sigma_foreground=1, sigma_background=0.4, step_size=0.2, number_steps=3):
+    '''Loads a 3D image, applies the filter, saves the result'''
     img3d = sitk.GetArrayFromImage(sitk.ReadImage(imagein))
-    dst = multiscale3DBG(img3d, 1, 0.4, 0.2, 2)
+    dst = multiscale3DBG(img3d, sigma_foreground, sigma_background, step_size, number_steps)
     sitk_img = sitk.GetImageFromArray(dst)
     sitk.WriteImage(sitk_img, os.path.join("./", imageout))
 
-def filter2d(imagein, imageout):
+def filter2d(imagein, imageout, sigma_foreground=1, sigma_background=0.4, step_size=0.2, number_steps=3):
+    '''Loads a 2D image, applies the filter, saves the result'''
     img2d = sitk.ReadImage(imagein)
     array2d = sitk.GetArrayFromImage(img2d)
     if len(array2d.shape) == 3:
         array2d = np.mean(array2d, -1)
 
-    dst = multiscale2DBG(array2d, 0.8, 0.3, 0.1, 3)
+    dst = multiscale2DBG(array2d, sigma_foreground, sigma_background, step_size, number_steps)
     sitk_img2d = sitk.GetImageFromArray(dst)
     sitk.WriteImage(sitk_img2d, os.path.join("./", imageout))
-#
-#3D filtrovani
-#
-#img3d = sitk.ReadImage('MRA-1.mha')
-#array3d = sitk.GetArrayFromImage(img3d)
-#dst = multiscale3DBG(array3d, 1, 0.4, 0.2, 3)
-#sitk_img = sitk.GetImageFromArray(dst)
-#sitk.WriteImage(sitk_img, os.path.join("./", 'validtest.mha'))
 
-# PROBLEMY:
-#
-# - konvoluce pres fft pouzita u 3D obrazu ma problem s krajnimi pixely, u snimku mozku neni problem,
-#   ale jinde byt muze - oriznout, normalizovat oriznute
-#
-# - fft s vetsimi nez malymi 3D obrazy pada, ale genericka konvoluce je straslive pomala
+#filter2d('gafa.jpg', 'gafa_g3.jpg')
+#filter3d('MRA-1.mha', 'MRA-1_3d_test_final.mha')
