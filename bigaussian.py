@@ -138,7 +138,7 @@ def biGaussianKernel3D(sigma, sigmab, ksize=0):
                     kernel3D[ksize-1-z][y][ksize-1-x] = kernelf[v]
                     kernel3D[ksize-1-z][ksize-1-y][ksize-1-x] = kernelf[v]
 
-    kernel3D = kernel3D / np.sum(kernel3D, dtype = np.float) #normalization
+    kernel3D = kernel3D / np.sum(kernel3D, dtype=np.float) #normalization
     return kernel3D
 
 
@@ -284,6 +284,7 @@ def multiscale2DBG(image, sigmaf, sigmab, step, nsteps):
 
 
 def multiscale2DBG_step(image, sigmaf, sigmab, i, step, return_dict):
+    '''Single iteration of 2D bigaussian filter, used for parallel filtering'''
     stime = timeit.default_timer()
 
     kernel = biGaussianKernel2D(sigmaf + (i * step), sigmab + (i * step / 2)) #generate the bigaussian kernel for each step
@@ -310,6 +311,7 @@ def multiscale2DBG_step(image, sigmaf, sigmab, i, step, return_dict):
 
 
 def multiscale3DBG_step(image, sigmaf, sigmab, i, step, return_dict):
+    '''Single iteration of 3D bigaussian filter, used for parallel filtering'''
     stime = timeit.default_timer()
     kernel = biGaussianKernel3D(sigmaf + (i * step), sigmab + (i * step / 2))
     print i+1, "- bigaussian kernel generated in", timeit.default_timer() - stime, "s"
@@ -363,20 +365,20 @@ def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
         print i+1, "- hessian computed in", timeit.default_timer() - stime, "s"
         stime = timeit.default_timer()
 
-        img_eigenvalues = eigenvalues3D(img_hessian).astype(np.float16)
+        img_eigenvalues = eigenvalues3D(img_hessian)#.astype(np.float16)
 
         print i+1, "- eigenvalues computed in", timeit.default_timer() - stime, "s"
         stime = timeit.default_timer()
 
-        img_lineness = lineness3D(img_eigenvalues).astype(np.float16)
+        img_lineness = lineness3D(img_eigenvalues)#.astype(np.float16)
 
         print i+1, "- lineness filter response computed in", timeit.default_timer() - stime, "s"
 
         image_out = np.maximum(image_out, img_lineness)
 
-
     max_value = np.amax(image_out)
-    return ((image_out/max_value)*255).astype(np.uint8)
+    #return ((image_out/max_value)*255).astype(np.uint8)
+    return image_out.astype(np.uint16)
 
 
 def filter3d(imagein, imageout, sigma_foreground=1, sigma_background=0.4, step_size=0.2, number_steps=3):
@@ -404,6 +406,7 @@ def filter2d(imagein, imageout, sigma_foreground=1, sigma_background=0.4, step_s
 
 
 def parallel_filter3d(imagein, imageout, sigma_foreground=1, sigma_background=0.4, step_size=0.2, number_steps=3):
+    '''Loads a 3D image, applies the filter in parallel, saves the result'''
     manager = multiprocessing.Manager()
     return_dict = manager.list()
     img3d = sitk.GetArrayFromImage(sitk.ReadImage(imagein))
@@ -428,6 +431,7 @@ def parallel_filter3d(imagein, imageout, sigma_foreground=1, sigma_background=0.
 
 
 def parallel_filter2d(imagein, imageout, sigma_foreground=1, sigma_background=0.4, step_size=0.2, number_steps=3):
+    '''Loads a 2D image, applies the filter in parallel, saves the result'''
     manager = multiprocessing.Manager()
     return_dict = manager.list()
     array2d = sitk.GetArrayFromImage(sitk.ReadImage(imagein))
