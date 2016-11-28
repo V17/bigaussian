@@ -10,6 +10,121 @@ from mpl_toolkits.mplot3d import Axes3D
 import timeit #db
 import sys
 
+
+def multiscale2DBG(image, sigmaf, sigmab, step, nsteps):
+    """Implements multiscale filtering for 2D images: for each step the image is blurred using accordingly sized
+    bigaussian, hessian matrix is computed for each pixel and the largest (absolute) eigenvalue is found. If the
+    eigenvalue intensity is larger than the intensity in the output image (initialized with zeros), it is used
+    as the output value for that pixel."""
+
+    image = image.astype(np.float)
+    image_out = np.zeros_like(image)
+    p = sigmab/sigmaf
+    for i in range(nsteps):
+        stime = timeit.default_timer()
+
+        kernel = biGaussianKernel2D(sigmaf + (i * step), (sigmaf + (i * step))*p) #generate the bigaussian kernel for each step
+
+        print i+1, "- bigaussian kernel generated in", timeit.default_timer() - stime, "s"
+        stime = timeit.default_timer()
+
+        img_filtered = ndimage.filters.convolve(image, kernel)
+
+        print i+1, "- image filtered in", timeit.default_timer() - stime, "s"
+        stime = timeit.default_timer()
+
+        img_hessian = hessian2D(img_filtered, sigmaf + (i * step))
+
+        print i+1, "- hessian computed in", timeit.default_timer() - stime, "s"
+        stime = timeit.default_timer()
+
+        img_e = np.clip(max_eig2D_alt(img_hessian), 0, 255)
+
+        print i+1, "- eigenvalues and lineness computed in", timeit.default_timer() - stime, "s"
+
+        image_out = np.maximum(image_out, img_e) #compare to output image and take the higher intensity pixels
+
+    max = np.amax(image_out)
+    image_out *= (255.0 / max)
+
+    return image_out.astype(np.uint8) #normalize the image to 0-255 and return
+
+
+def multiscale3DBG(image, sigmaf, sigmab, step, nsteps):
+    """Implements multiscale filtering for 3D images: for each step the image is blurred using accordingly sized
+    bigaussian, hessian matrix is computed for each pixel and the lineness function is computed from its eigenvalues.
+    If the lineness intensity is larger than the intensity in the output image (initialized with zeros), it is used
+    as the output value for that pixel."""
+
+    image_out = np.zeros_like(image, dtype=np.float32)
+    p = sigmab / sigmaf
+    for i in range(nsteps):
+
+        stime = timeit.default_timer()
+
+        kernel = biGaussianKernel3D(sigmaf + (i * step), (sigmaf + (i * step))*p)
+
+        print i+1, "- bigaussian kernel generated in", timeit.default_timer() - stime, "s"
+        stime = timeit.default_timer()
+
+        img_filtered = ndimage.filters.convolve(image.astype(np.float32), kernel.astype(np.float32))
+
+        print i+1, "- image filtered in", timeit.default_timer() - stime, "s"
+        stime = timeit.default_timer()
+
+        img_hessian = hessian3D(img_filtered, sigmaf + (i * step))
+
+        print i+1, "- hessian computed in", timeit.default_timer() - stime, "s"
+        stime = timeit.default_timer()
+
+        img_eigenvalues = eigenvalues3D(img_hessian)#.astype(np.float16)
+
+        print i+1, "- eigenvalues computed in", timeit.default_timer() - stime, "s"
+        stime = timeit.default_timer()
+
+        img_lineness = lineness3D(img_eigenvalues)#.astype(np.float16)
+
+        print i+1, "- lineness filter response computed in", timeit.default_timer() - stime, "s"
+
+        image_out = np.maximum(image_out, img_lineness)
+
+    max_value = np.amax(image_out)
+    #return ((image_out/max_value)*255).astype(np.uint8)
+    return image_out#.astype(np.uint16)
+
+def filter3d(imagein, imageout, sigma_foreground=1, sigma_background=0.4, step_size=0.2, number_steps=3):
+    """Loads a 3D image, applies the filter, saves the result"""
+    img3d = sitk.GetArrayFromImage(sitk.ReadImage(imagein))
+    stime = timeit.default_timer()
+    dst = multiscale3DBG(img3d, sigma_foreground, sigma_background, step_size, number_steps)
+    sitk_img = sitk.GetImageFromArray(dst)
+    print "single-thread filter finished in", timeit.default_timer() - stime, "s"
+    sitk.WriteImage(sitk_img, os.path.join("./", imageout))
+
+
+def filter2d(imagein, imageout, sigma_foreground=1, sigma_background=0.4, step_size=0.2, number_steps=3):
+    """Loads a 2D image, applies the filter, saves the result"""
+    img2d = sitk.ReadImage(imagein)
+    array2d = sitk.GetArrayFromImage(img2d)
+    if len(array2d.shape) == 3:
+        array2d = np.mean(array2d, -1) #converts to grayscale
+
+    stime = timeit.default_timer()
+    dst = multiscale2DBG(array2d, sigma_foreground, sigma_background, step_size, number_steps)
+    sitk_img2d = sitk.GetImageFromArray(dst)
+    print "single-thread filter finished in", timeit.default_timer() - stime, "s"
+    sitk.WriteImage(sitk_img2d, os.path.join("./", imageout))
+
+
+def max_eig2d_pool(hessian):
+    pool = multiprocessing.Pool(processes=4)
+    eigenvalues = np.array(pool.map(np.linalg.eigvals, hessian))
+    sorted_index = np.argsort(np.fabs(eigenvalues), axis=2)
+    static_index = np.indices((hessian.shape[0], hessian.shape[1], 2))
+
+    eigenvalues = eigenvalues[static_index[0], static_index[1], sorted_index]
+    return (np.transpose(eigenvalues, (2, 0, 1))[1] * (-1)).clip(0)
+
 '''
 def main(argv):
     if len(argv) != 5:
