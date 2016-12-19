@@ -11,6 +11,252 @@ import timeit #db
 import sys
 
 
+
+def multiscale3DBG_step(image, kernel, i, sigma, return_dict):
+    """Single iteration of 3D bigaussian filter, stores the output in the return_dict list"""
+
+    stime = timeit.default_timer()
+    img_resized = np.pad(image, int((kernel.shape[0]/2)), mode='reflect')
+    img_filtered = signal.fftconvolve(img_resized, kernel, mode='valid')
+    print i+1, "- image filtered with bi-gaussian in", timeit.default_timer() - stime, "s"
+
+    stime = timeit.default_timer()
+    img_hessian = hessian3D(img_filtered, sigma)
+    print i+1, "- hessian computed in", timeit.default_timer() - stime, "s"
+
+    stime = timeit.default_timer()
+    img_eigenvalues = eigenvalues3D(img_hessian).astype(np.float16)
+    print i+1, "- eigenvalues computed in", timeit.default_timer() - stime, "s"
+
+    stime = timeit.default_timer()
+    img_lineness = lineness_bg_3d(img_eigenvalues).astype(np.float16)
+    print i+1, "- lineness filter response computed in", timeit.default_timer() - stime, "s"
+
+    return_dict.append(img_lineness)
+    return
+
+
+def multiscale_frangi_step(image, kernel, i, sigma, return_dict):
+    """Single iteration of 3D frangi filter, stores the output in the return_dict list"""
+
+    stime = timeit.default_timer()
+    img_resized = np.pad(image, int((kernel.shape[0]/2)), mode='reflect')
+    img_filtered = signal.fftconvolve(img_resized, kernel, mode='valid')
+    print i+1, "- image filtered with gaussian in", timeit.default_timer() - stime, "s"
+
+    stime = timeit.default_timer()
+    img_hessian = hessian3D(img_filtered, sigma)
+    print i+1, "- hessian computed in", timeit.default_timer() - stime, "s"
+
+    stime = timeit.default_timer()
+    img_eigenvalues = eigenvalues3D(img_hessian).astype(np.float)
+    print i+1, "- eigenvalues computed in", timeit.default_timer() - stime, "s"
+
+    stime = timeit.default_timer()
+    img_lineness = lineness_frangi_3d(img_eigenvalues).astype(np.float)
+    print i+1, "- lineness filter response computed in", timeit.default_timer() - stime, "s"
+
+    return_dict.append(img_lineness)
+    return
+
+
+def multiscale_sato_step(image, kernel, i, sigma, return_dict):
+    """Single iteration of 3D frangi filter, stores the output in the return_dict list"""
+
+    stime = timeit.default_timer()
+    img_resized = np.pad(image, int((kernel.shape[0]/2)), mode='reflect')
+    img_filtered = signal.fftconvolve(img_resized, kernel, mode='valid')
+    print i+1, "- image filtered with gaussian in", timeit.default_timer() - stime, "s"
+
+    stime = timeit.default_timer()
+    img_hessian = hessian3D(img_filtered, sigma)
+    print i+1, "- hessian computed in", timeit.default_timer() - stime, "s"
+
+    stime = timeit.default_timer()
+    img_eigenvalues = eigenvalues3D(img_hessian).astype(np.float)
+    print i+1, "- eigenvalues computed in", timeit.default_timer() - stime, "s"
+
+    stime = timeit.default_timer()
+    img_lineness = lineness_sato_3d(img_eigenvalues).astype(np.float)
+    print i+1, "- lineness filter response computed in", timeit.default_timer() - stime, "s"
+
+    return_dict.append(img_lineness)
+    return
+
+
+
+
+def sato_filter3d(imagein, imageout, sigma=1.0, step_size=0.5, number_steps=3):
+    img3d = sitk.GetArrayFromImage(sitk.ReadImage(imagein)).astype(np.float)
+    #max_value = np.amax(img3d)
+    #img3d *= (255.0 / max_value)
+    stime = timeit.default_timer()
+    image_out = np.zeros_like(img3d, dtype=np.float)
+    return_list = list()
+    for i in range(number_steps):
+        multiscale_sato_step(img3d, sigma, i, step_size, return_list)
+    for result in return_list:
+        image_out = np.maximum(image_out, result)
+
+    #image_out = np.clip(image_out, 0, 255)
+    max_value = np.amax(image_out)
+    if max_value < 255:
+        image_out *= (255.0 / max_value)
+    #threshold = rosin_threshold(image_out)
+    #mask = image_out > threshold
+    #image_out[mask] = 255
+    #image_out *= mask
+    sitk_img = sitk.GetImageFromArray(image_out.astype(np.uint8))
+    print "filter finished in", timeit.default_timer() - stime, "s"
+    sitk.WriteImage(sitk_img, os.path.join("./", imageout))
+
+
+def frangi_filter3d(imagein, imageout, sigma=1.0, step_size=0.5, number_steps=3):
+    img3d = sitk.GetArrayFromImage(sitk.ReadImage(imagein)).astype(np.float)
+    #max_value = np.amax(img3d)
+    #img3d *= (255.0 / max_value)
+    stime = timeit.default_timer()
+    image_out = np.zeros_like(img3d, dtype=np.float)
+    return_list = list()
+    for i in range(number_steps):
+        multiscale_frangi_step(img3d, sigma, i, step_size, return_list)
+    for result in return_list:
+        image_out = np.maximum(image_out, result)
+
+    #image_out = np.clip(image_out, 0, 255)
+    max_value = np.amax(image_out)
+    if max_value < 255:
+        image_out *= (255.0 / max_value)
+    #threshold = rosin_threshold(image_out)
+    #mask = image_out > threshold
+    #image_out[mask] = 255
+    #image_out *= mask
+    sitk_img = sitk.GetImageFromArray(image_out.astype(np.uint8))
+    print "filter finished in", timeit.default_timer() - stime, "s"
+    sitk.WriteImage(sitk_img, os.path.join("./", imageout))
+
+
+def bigaussian_filter3d(imagein, imageout, sigma_foreground=1.0, sigma_background=0.4, step_size=0.2, number_steps=3):
+    img3d = sitk.GetArrayFromImage(sitk.ReadImage(imagein)).astype(np.float)
+    max_value = np.amax(img3d)
+    img3d *= (255.0 / max_value)
+    stime = timeit.default_timer()
+    image_out = np.zeros_like(img3d, dtype=np.float)
+    return_list = list()
+    p = sigma_background / sigma_foreground
+    for i in range(number_steps):
+        multiscale3DBG_step(img3d, sigma_foreground + (i * step_size), (sigma_foreground + (i * step_size)) * p, i, step_size, return_list)
+    for result in return_list:
+        image_out = np.maximum(image_out, result)
+
+    image_out = np.clip(image_out, 0, 255)
+    max_value = np.amax(image_out)
+    if max_value < 255:
+        image_out *= (255.0 / max_value)
+    histogram = np.histogram(image_out, 255)
+    threshold = max_entropy(histogram[0])
+
+    sitk_img = sitk.GetImageFromArray(image_out.astype(np.uint8))
+    print "filter finished in", timeit.default_timer() - stime, "s"
+    sitk.WriteImage(sitk_img, os.path.join("./", imageout))
+
+    mask = image_out > threshold
+    image_out[mask] = 255
+    image_out *= mask
+    sitk_img = sitk.GetImageFromArray(image_out.astype(np.uint8))
+    sitk.WriteImage(sitk_img, os.path.join("./", imageout+"threshold.mha"))
+
+
+def bigaussian_filter2d(imagein, imageout, sigma_foreground=1.0, sigma_background=0.4, step_size=0.2, number_steps=3):
+    array2d = sitk.GetArrayFromImage(sitk.ReadImage(imagein)).astype(np.float)
+    return_list = list()
+    p = sigma_background/sigma_foreground
+    # convert to grayscale:
+    if len(array2d.shape) == 3:
+        array2d = np.mean(array2d, -1)
+    image_out = np.zeros_like(array2d)
+    stime = timeit.default_timer()
+    for i in range(number_steps):
+        multiscale2DBG_step(array2d, sigma_foreground + (i * step_size), (sigma_foreground + (i * step_size)) * p, i, step_size, return_list)
+    for result in return_list:
+        image_out = np.maximum(image_out, result)
+    image_out = np.clip(image_out, 0, 255)
+    max_value = np.amax(image_out)
+    if max_value < 255:
+        image_out *= (255.0 / max_value)
+    threshold = rosin_threshold(image_out)
+    mask = image_out > threshold
+    #image_out[mask] = 255
+    #image_out *= mask
+    sitk_img2d = sitk.GetImageFromArray(image_out.astype(np.uint8))
+    print "filter finished in", timeit.default_timer() - stime, "s"
+    sitk.WriteImage(sitk_img2d, os.path.join("./", imageout))
+
+
+
+
+def parallel_filter3d(imagein, imageout, sigma_foreground=1.0, sigma_background=0.4, step_size=0.2, number_steps=3):
+    """Loads a 3D image, applies the filter in parallel, saves the result"""
+    manager = multiprocessing.Manager()
+    return_list = manager.list()
+    jobs = []
+
+    img3d = sitk.GetArrayFromImage(sitk.ReadImage(imagein)).astype(np.float)
+    max_value = np.amax(img3d)
+    img3d *= (255.0 / max_value)
+    p = sigma_background / sigma_foreground
+
+    stime = timeit.default_timer()
+    for i in range(number_steps):
+        proc = multiprocessing.Process(target=multiscale3DBG_step,
+                                       args=(img3d, sigma_foreground + (i * step_size), (sigma_foreground + (i * step_size))*p, i, step_size, return_list))
+        jobs.append(proc)
+        proc.start()
+
+    for proc in jobs:
+        proc.join()
+    image_out = np.zeros_like(img3d, dtype=np.float)
+    for result in return_list:
+        image_out = np.maximum(image_out, result)
+    image_out = np.clip(image_out, 0, 255)
+    max_value = np.amax(image_out)
+    if max_value < 255:
+        image_out *= (255.0 / max_value)
+    sitk_img = sitk.GetImageFromArray(image_out.astype(np.uint8))
+    print "parallel filter finished in", timeit.default_timer() - stime, "s"
+    sitk.WriteImage(sitk_img, os.path.join("./", imageout))
+
+
+def parallel_filter2d(imagein, imageout, sigma_foreground=1.0, sigma_background=0.4, step_size=0.2, number_steps=3):
+    """Loads a 2D image, applies the filter in parallel, saves the result"""
+    manager = multiprocessing.Manager()
+    return_list = manager.list()
+    array2d = sitk.GetArrayFromImage(sitk.ReadImage(imagein)).astype(np.float)
+    # convert to grayscale
+    if len(array2d.shape) == 3:
+        array2d = np.mean(array2d, -1)
+    image_out = np.zeros_like(array2d)
+    p = sigma_background / sigma_foreground
+    jobs = []
+    stime = timeit.default_timer()
+    for i in range(number_steps):
+        proc = multiprocessing.Process(target=multiscale2DBG_step,
+                                       args=(array2d, sigma_foreground + (i * step_size), (sigma_foreground + (i * step_size))*p, i, step_size, return_list))
+        jobs.append(proc)
+        proc.start()
+    for proc in jobs:
+        proc.join()
+    for result in return_list:
+        image_out = np.maximum(image_out, result)
+    image_out = np.clip(image_out, 0, 255)
+    max_value = np.amax(image_out)
+    if max_value < 255:
+        image_out *= (255.0 / max_value)
+    sitk_img2d = sitk.GetImageFromArray(image_out.astype(np.uint8))
+    print "parallel filter finished in", timeit.default_timer() - stime, "s"
+    sitk.WriteImage(sitk_img2d, os.path.join("./", imageout))
+
+
 def multiscale2DBG(image, sigmaf, sigmab, step, nsteps):
     """Implements multiscale filtering for 2D images: for each step the image is blurred using accordingly sized
     bigaussian, hessian matrix is computed for each pixel and the largest (absolute) eigenvalue is found. If the

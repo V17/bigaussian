@@ -24,10 +24,8 @@ if __name__ == '__main__':
                                                                             ' x times more memory, where x is the number'
                                                                             'of multiscale steps.')
     multiprocessing.freeze_support()
-    bigaussian.filter2d("./input/hgauss15.png", "hgauss-np.jpg", sigma_foreground=2, sigma_background=0.8, step_size=1, number_steps=3)
-    bigaussian.parallel_filter2d("./input/hgauss15.png", "hgauss-p.jpg", sigma_foreground=2, sigma_background=0.8, step_size=1, number_steps=3)
-    bigaussian.filter3d("./input/hgauss15.mha", "hgauss15-np.mha", sigma_foreground=1, sigma_background=0.4, step_size=0.6, number_steps=4)
-    bigaussian.parallel_filter3d("./input/hgauss15.mha", "hgauss15-p.mha", sigma_foreground=1, sigma_background=0.4, step_size=0.6, number_steps=4)
+    bigaussian.frangi_filter3d("./input/hgauss15.mha", "./hgauss15_frangi.mha", 1.5, 1, 3)
+    os._exit(0)
     args = parser.parse_args()
     if args.dimensions is None:
         extension = os.path.splitext(args.input)[1].strip().lower()
@@ -40,20 +38,20 @@ if __name__ == '__main__':
             if args.multiprocessing == 'y':
                 bigaussian.parallel_filter2d(args.input, args.output)
             else:
-                bigaussian.filter2d(args.input, args.output)
+                bigaussian.bigaussian_filter2d(args.input, args.output)
         else:
             if args.multiprocessing == 'y':
                 bigaussian.parallel_filter2d(args.input, args.output, args.params[0], args.params[1], args.params[3], int(args.params[2]))
             else:
-                bigaussian.filter2d(args.input, args.output, args.params[0], args.params[1], args.params[3], int(args.params[2]))
+                bigaussian.bigaussian_filter2d(args.input, args.output, args.params[0], args.params[1], args.params[3], int(args.params[2]))
     if args.dimensions.upper() == '3D':
         if args.params is None:
             if args.multiprocessing == 'y':
                 bigaussian.parallel_filter3d(args.input, args.output)
             else:
-                bigaussian.filter3d(args.input, args.output)
+                bigaussian.bigaussian_filter3d(args.input, args.output)
         else:
             if args.multiprocessing == 'y':
                 bigaussian.parallel_filter3d(args.input, args.output, args.params[0], args.params[1], args.params[3], int(args.params[2]))
             else:
-                bigaussian.filter3d(args.input, args.output, args.params[0], args.params[1], args.params[3], int(args.params[2]))
+                bigaussian.bigaussian_filter3d(args.input, args.output, args.params[0], args.params[1], args.params[3], int(args.params[2]))
