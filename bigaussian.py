@@ -2,7 +2,7 @@
 __author__ = 'Vojtech Vozab'
 import numpy as np
 import SimpleITK as sitk
-from scipy import ndimage, signal
+from scipy import ndimage, signal, spatial
 import os
 import timeit
 
@@ -54,8 +54,8 @@ def bigaussian_kernel_1d(sigma, sigmab, ksize=0):
     kernel = gaussian_kernel_1d(ksize, sigma) + c0
     kernelb = gaussian_kernel_1d(ksize, sigmab) * k
 
-    kernel[0 : ((ksize-1) / 2) - sigma] = kernelb[sigma-sigmab : ((ksize-1) / 2) - sigmab]
-    kernel[((ksize-1) / 2) + sigma : ksize] = kernelb[((ksize-1) / 2) + sigmab : ksize + sigmab - sigma]
+    kernel[0: ((ksize-1) / 2) - sigma] = kernelb[sigma-sigmab: ((ksize-1) / 2) - sigmab]
+    kernel[((ksize-1) / 2) + sigma: ksize] = kernelb[((ksize-1) / 2) + sigmab: ksize + sigmab - sigma]
     kernel_sum = sum(kernel)
     kernel_normalized = kernel / kernel_sum
 
@@ -398,3 +398,38 @@ def general_filter_3d(imagein, imageout, kernel_function, vesselness_function, s
     image_out *= mask
     sitk_img = sitk.GetImageFromArray(image_out.astype(np.uint8))
     sitk.WriteImage(sitk_img, os.path.join("./", filename+"_"+"out"+"_threshold"+suffix))
+
+
+def tprtnr(source, filtered):
+    source_array = sitk.GetArrayFromImage(sitk.ReadImage(source))/255
+    filtered_array = sitk.GetArrayFromImage(sitk.ReadImage(filtered))/255
+    tp = np.sum(np.logical_and(source_array == 1, filtered_array == 1)).astype(np.float)
+    tn = np.sum(np.logical_and(source_array == 0, filtered_array == 0)).astype(np.float)
+    fp = np.sum(np.logical_and(source_array == 0, filtered_array == 1)).astype(np.float)
+    fn = np.sum(np.logical_and(source_array == 1, filtered_array == 0)).astype(np.float)
+    tpr = (tp/(tp+fn))*100
+    tnr = (tn/(tn+fp))*100
+    print "sensitivity = ", tpr
+    print "specificity = ", tnr
+
+    return tpr, tnr
+
+
+def hausdorff_distance(source, target):
+    source_array = sitk.GetArrayFromImage(sitk.ReadImage(source))
+    target_array = sitk.GetArrayFromImage(sitk.ReadImage(target))
+    source_list = np.argwhere(source_array)
+    target_list = np.argwhere(target_array)
+    end_dist_ab = np.max(np.amin(spatial.distance.cdist(source_list, target_list), axis=0))
+    end_dist_ba = np.max(np.amin(spatial.distance.cdist(target_list, source_list), axis=0))
+    return max(end_dist_ab, end_dist_ba)
+
+
+def modified_hausdorff_distance(source, target):
+    source_array = sitk.GetArrayFromImage(sitk.ReadImage(source))
+    target_array = sitk.GetArrayFromImage(sitk.ReadImage(target))
+    source_list = np.argwhere(source_array)
+    target_list = np.argwhere(target_array)
+    end_dist_ab = np.median(np.amin(spatial.distance.cdist(source_list, target_list), axis=0))
+    end_dist_ba = np.median(np.amin(spatial.distance.cdist(target_list, source_list), axis=0))
+    return max(end_dist_ab, end_dist_ba)
