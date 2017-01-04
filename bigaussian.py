@@ -5,6 +5,7 @@ import SimpleITK as sitk
 from scipy import ndimage, signal, spatial
 import os
 import timeit
+import max_entropy_threshold
 
 
 def gaussian_kernel_1d(n, sigma):
@@ -15,6 +16,8 @@ def gaussian_kernel_1d(n, sigma):
 
 
 def gaussian_kernel_2d(sigma, sigma_b, ksize=0):
+    """Generates a 2D gaussian kernel using a built-in filter and a dirac impulse. Unused sigma_b argument is
+    here for compatibility with the bi-Gaussian kernel function."""
     if ksize == 0:
         ksize = np.round(6 * sigma - 1)
     if (ksize % 2) == 0:
@@ -25,6 +28,8 @@ def gaussian_kernel_2d(sigma, sigma_b, ksize=0):
 
 
 def gaussian_kernel_3d(sigma, sigma_b, ksize=0):
+    """Generates a 3D gaussian kernel using a built-in filter and a dirac impulse. Unused sigma_b argument is
+    here for compatibility with the bi-Gaussian kernel function."""
     if ksize == 0:
         ksize = np.round(6 * sigma - 1)
     if (ksize % 2) == 0:
@@ -46,7 +51,6 @@ def bigaussian_kernel_1d(sigma, sigmab, ksize=0):
 
     if (ksize % 2) == 0:
         ksize += 1
-        print("size of kernel is even, enlarging by one")
 
     c0 = (np.exp(-0.5) / np.sqrt(2*np.pi)) * ((float(sigmab) / float(sigma)) - 1) * (1 / float(sigma))
     k = (float(sigmab**2) / float(sigma**2))
@@ -78,7 +82,6 @@ def bigaussian_kernel_2d(sigma, sigmab, ksize=0):
 
     if (ksize % 2) == 0:
         ksize += 1
-        print("size of kernel is even, enlarging by one")
 
     c0 = (np.exp(-0.5) / np.sqrt(2*np.pi)) * ((float(sigmab) / float(sigma)) - 1) * (1 / float(sigma))
     k = (float(sigmab**2) / float(sigma**2))
@@ -124,7 +127,6 @@ def bigaussian_kernel_3d(sigma, sigmab, ksize=0):
 
     if (ksize % 2) == 0:
         ksize += 1
-        print("size of kernel is even, enlarging by one")
 
     c0 = (np.exp(-0.5) / np.sqrt(2*np.pi)) * ((float(sigmab) / float(sigma)) - 1) * (1 / float(sigma))
     k = (float(sigmab**2) / float(sigma**2))
@@ -211,12 +213,12 @@ def max_eigenvalue_magnitude_2d(hessian):
 
 
 def lineness_bg_3d(eigenvalues):
-    """Computes the 3D lineness function from eigenvalues for each pixel"""
+    """Computes the bi-Gaussian 3D lineness function from eigenvalues for each pixel"""
     sorted_index = np.argsort(np.fabs(eigenvalues), axis=3)
     static_index = np.indices((eigenvalues.shape[0], eigenvalues.shape[1], eigenvalues.shape[2], 3))
     eigenvalues = np.transpose(eigenvalues[static_index[0], static_index[1], static_index[2], sorted_index], (3, 0, 1, 2))
     eigensum = np.sum(eigenvalues, axis=0)
-    # function sometimes raises a division by zero warning, but this is ignored here and handled by nan_to_num() conversion
+    # function sometimes raises a division by zero warning, but this is ignored here and correctly handled by nan_to_num() conversion
     np.seterr(invalid='ignore')
     result = np.multiply(np.nan_to_num(np.divide(eigenvalues[1], eigenvalues[2])), np.add(eigenvalues[1], eigenvalues[2])) * (-1)
     np.seterr(invalid='warn')
@@ -229,13 +231,16 @@ def lineness_bg_3d(eigenvalues):
 
 
 def lineness_frangi_3d(eigenvalues):
+    """Computes the Frangi 3D lineness function from eigenvalues for each pixel"""
     eigenvalues_abs = np.fabs(eigenvalues)
     sorted_index = np.argsort(eigenvalues_abs, axis=3)
     static_index = np.indices((eigenvalues.shape[0], eigenvalues.shape[1], eigenvalues.shape[2], 3))
     eigenvalues = np.transpose(eigenvalues[static_index[0], static_index[1], static_index[2], sorted_index], (3, 0, 1, 2))
     eigenvalues_abs = np.transpose(np.sort(eigenvalues_abs, axis=3), (3, 0, 1, 2))
-    ra = eigenvalues_abs[1]/eigenvalues_abs[2]
-    rb = eigenvalues_abs[0]/np.sqrt(eigenvalues_abs[1]*eigenvalues_abs[2])
+    np.seterr(invalid='ignore')
+    ra = np.nan_to_num(eigenvalues_abs[1]/eigenvalues_abs[2])
+    rb = np.nan_to_num(eigenvalues_abs[0]/np.sqrt(eigenvalues_abs[1]*eigenvalues_abs[2]))
+    np.seterr(invalid='warn')
     s = np.sqrt(eigenvalues_abs[0]**2 + eigenvalues_abs[1]**2 + eigenvalues_abs[2]**2)
     c = np.amax(s)/2
     result = (1 - np.exp(-(ra**2)/0.5)) * np.exp(-(rb**2)/0.5) * (1 - np.exp(- (s**2)/(2*(c**2))))
@@ -246,6 +251,7 @@ def lineness_frangi_3d(eigenvalues):
 
 
 def lineness_sato_3d(eigenvalues):
+    """Computes the Sato 3D lineness function from eigenvalues for each pixel"""
     eigenvalues = np.transpose(np.sort(eigenvalues, axis=3), (3, 0, 1, 2))
     alpha = 0.5
     output_a = np.fabs(eigenvalues[1]) + eigenvalues[2]
@@ -258,7 +264,7 @@ def lineness_sato_3d(eigenvalues):
 
 
 def multiscale2DBG_step(image, sigmaf, sigmab, i, step, return_dict):
-    """Single iteration of 2D bigaussian filter, stores the output in the return_dict list"""
+    """Computes a single scale-step of 2D bigaussian filter, stores the output in the return_dict list"""
     stime = timeit.default_timer()
     kernel = bigaussian_kernel_2d(sigmaf + (i * step), sigmab + (i * step / 2))
     print i+1, "- bigaussian kernel generated in", timeit.default_timer() - stime, "s"
@@ -280,6 +286,7 @@ def multiscale2DBG_step(image, sigmaf, sigmab, i, step, return_dict):
 
 
 def rosin_threshold(image):
+    """Returns the image threshold using triangle thresholding method."""
     histogram = ndimage.histogram(image, 0, 255, 255)
     max_hist_index = np.argmax(histogram)
     min_hist_array = np.array(np.nonzero(histogram))[-1]
@@ -303,84 +310,43 @@ def rosin_threshold(image):
     return best_idx
 
 
-def max_entropy_threshold(histogram):
-    """
-    Implements Kapur-Sahoo-Wong (Maximum Entropy) thresholding method
-    Kapur J.N., Sahoo P.K., and Wong A.K.C. (1985) "A New Method for Gray-Level Picture Thresholding Using the Entropy
-    of the Histogram", Graphical Models and Image Processing, 29(3): 273-285
-    M. Emre Celebi
-    06.15.2007
-    Ported to ImageJ plugin by G.Landini from E Celebi's fourier_0.8 routines
-    2016-04-28: Adapted for Python 2.7 by Robert Metchev from Java source of MaxEntropy() in the Autothresholder plugin
-    http://rsb.info.nih.gov/ij/plugins/download/AutoThresholder.java
-    :param histogram: Sequence representing the histogram of the image
-    :return threshold: Resulting maximum entropy threshold
-    """
-
-    # calculate CDF (cumulative density function)
-    cdf = histogram.astype(np.float).cumsum()
-
-    # find histogram's nonzero area
-    valid_idx = np.nonzero(histogram)[0]
-    first_bin = valid_idx[0]
-    last_bin = valid_idx[-1]
-
-    # initialize search for maximum
-    max_ent, threshold = 0, 0
-
-    for it in range(first_bin, last_bin + 1):
-        # Background (dark)
-        hist_range = histogram[:it + 1]
-        hist_range = hist_range[hist_range != 0] / cdf[it]  # normalize within selected range & remove all 0 elements
-        tot_ent = -np.sum(hist_range * np.log(hist_range))  # background entropy
-
-        # Foreground/Object (bright)
-        hist_range = histogram[it + 1:]
-        # normalize within selected range & remove all 0 elements
-        hist_range = hist_range[hist_range != 0] / (cdf[last_bin] - cdf[it])
-        tot_ent -= np.sum(hist_range * np.log(hist_range))  # accumulate object entropy
-
-        # find max
-        if tot_ent > max_ent:
-            max_ent, threshold = tot_ent, it
-
-    return threshold
-
-
 def filter_3d_step(image, kernel, i, sigma, return_dict, lineness):
-    stime = timeit.default_timer()
-    img_resized = np.pad(image, int((kernel.shape[0]/2)), mode='reflect')
+    """Computes a single scale-step of a 3d filter on an image in the form of a numpy array. Accepts different kernels
+    and lineness functions as arguments, stores the output image in return_dict."""
+    #stime = timeit.default_timer()
+    img_resized = np.pad(image, int((kernel.shape[0] / 2)), mode='reflect')
     img_filtered = signal.fftconvolve(img_resized, kernel, mode='valid')
-    print i+1, "- image smoothed in", timeit.default_timer() - stime, "s"
+    #print i+1, "- image smoothed in", timeit.default_timer() - stime, "s"
 
-    stime = timeit.default_timer()
+    #stime = timeit.default_timer()
     img_hessian = hessian3d(img_filtered, sigma)
-    print i+1, "- hessian computed in", timeit.default_timer() - stime, "s"
+    #print i+1, "- hessian computed in", timeit.default_timer() - stime, "s"
 
-    stime = timeit.default_timer()
-    img_eigenvalues = np.linalg.eigvals(img_hessian).astype(np.float)
-    print i+1, "- eigenvalues computed in", timeit.default_timer() - stime, "s"
+    #stime = timeit.default_timer()
+    img_eigenvalues = np.linalg.eigvals(img_hessian).astype(np.float32)
+    #print i+1, "- eigenvalues computed in", timeit.default_timer() - stime, "s"
 
-    stime = timeit.default_timer()
-    img_lineness = lineness(img_eigenvalues).astype(np.float)
-    print i+1, "- lineness filter response computed in", timeit.default_timer() - stime, "s"
+    #stime = timeit.default_timer()
+    img_lineness = lineness(img_eigenvalues).astype(np.float32)
+    #print i+1, "- lineness filter response computed in", timeit.default_timer() - stime, "s"
 
-    return_dict.append(img_lineness)
+    return_dict[0] = np.maximum(return_dict[0], img_lineness)
     return
 
 
 def general_filter_3d(imagein, imageout, kernel_function, vesselness_function, sigma_foreground=3, sigma_background=1.5, step_size=0.5, number_steps=1):
-    img3d = sitk.GetArrayFromImage(sitk.ReadImage(imagein)).astype(np.float)
+    """Applies a multi-scale filter on an image, enhances the contrast (if maximum intensity < 255), saves the output
+    and then computes the threshold using max_entropy thresholding and saves the thresholded output."""
+    img3d = sitk.GetArrayFromImage(sitk.ReadImage(imagein))
     return_list = list()
     p = float(sigma_background)/float(sigma_foreground)
-    image_out = np.zeros_like(img3d, dtype=np.float)
+    image_out = np.zeros_like(img3d, dtype=np.float32)
+    return_list.append(image_out)
     stime = timeit.default_timer()
     for i in range(number_steps):
         kernel = kernel_function(sigma_foreground + (i * step_size), (sigma_foreground + (i * step_size)) * p)
-        filter_3d_step(img3d, kernel, i,  sigma_foreground + (i * step_size), return_list, vesselness_function)
-    for result in return_list:
-        image_out = np.maximum(image_out, result)
-
+        filter_3d_step(img3d, kernel, i, sigma_foreground + (i * step_size), return_list, vesselness_function)
+    image_out = return_list[0]
     image_out = np.clip(image_out, 0, 255)
     max_value = np.amax(image_out)
     if max_value < 255:
@@ -392,7 +358,7 @@ def general_filter_3d(imagein, imageout, kernel_function, vesselness_function, s
     sitk.WriteImage(sitk_img, filename+"_out"+suffix)
 
     histogram = np.histogram(image_out, 255)[0]
-    threshold = max_entropy_threshold(histogram)
+    threshold = max_entropy_threshold.max_entropy_threshold(histogram)
     mask = image_out > threshold
     image_out[mask] = 255
     image_out *= mask
@@ -401,6 +367,8 @@ def general_filter_3d(imagein, imageout, kernel_function, vesselness_function, s
 
 
 def tprtnr(source, filtered):
+    """Prints and returns sensitivity and specificity. Source is a perfect (thresholded) output, filtered is a
+    thresholded image being compared."""
     source_array = sitk.GetArrayFromImage(sitk.ReadImage(source))/255
     filtered_array = sitk.GetArrayFromImage(sitk.ReadImage(filtered))/255
     tp = np.sum(np.logical_and(source_array == 1, filtered_array == 1)).astype(np.float)
@@ -409,13 +377,12 @@ def tprtnr(source, filtered):
     fn = np.sum(np.logical_and(source_array == 1, filtered_array == 0)).astype(np.float)
     tpr = (tp/(tp+fn))*100
     tnr = (tn/(tn+fp))*100
-    print "sensitivity = ", tpr
-    print "specificity = ", tnr
 
     return tpr, tnr
 
 
 def hausdorff_distance(source, target):
+    """Computes the Hausdorff distance of two monochromatic images."""
     source_array = sitk.GetArrayFromImage(sitk.ReadImage(source))
     target_array = sitk.GetArrayFromImage(sitk.ReadImage(target))
     source_list = np.argwhere(source_array)
@@ -426,6 +393,7 @@ def hausdorff_distance(source, target):
 
 
 def modified_hausdorff_distance(source, target):
+    """Computes the modified Hausdorff distance of two monochromatic images."""
     source_array = sitk.GetArrayFromImage(sitk.ReadImage(source))
     target_array = sitk.GetArrayFromImage(sitk.ReadImage(target))
     source_list = np.argwhere(source_array)

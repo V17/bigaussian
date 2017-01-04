@@ -11,6 +11,70 @@ import timeit #db
 import sys
 
 
+def bg3d(imagein, imageout, sigma_foreground=1, sigma_background=0.4, step_size=0.5, number_steps=3):
+    img3d = sitk.GetArrayFromImage(sitk.ReadImage(os.path.join("./input/", imagein)))
+    p = sigma_background / sigma_foreground
+    for i in range(number_steps):
+        kernel = bigaussian_kernel_3d(sigma_foreground + (i * step_size), (sigma_foreground + (i * step_size)) * p)
+        img_filtered = ndimage.filters.convolve(img3d, kernel)
+        sitk.WriteImage(sitk.GetImageFromArray(img_filtered), os.path.join("./output/", str(i)+imageout))
+
+
+def poisson(imagein, imageout):
+    img3d = sitk.GetArrayFromImage(sitk.ReadImage(imagein)).astype(np.float32)
+    print img3d.shape
+    maximum = np.amax(img3d)
+    minimum = np.amin(img3d)
+    print "original:", minimum, maximum
+    noise_mask = np.random.poisson((img3d+64.0)/2.347)
+    print (img3d+64)/2.347
+    print noise_mask
+    minimum = np.amin(noise_mask)
+    maximum = np.amax(noise_mask)
+    print "noise:", minimum, maximum
+    output = np.clip((noise_mask*2.0)-64.0, 0, 255).astype(np.uint8)
+    minimum = np.amin(output)
+    maximum = np.amax(output)
+    print "output:", minimum, maximum
+    peak = 50
+    noisy = np.clip(np.random.poisson(img3d.astype(np.float32)+10) - 10, 0, 255).astype(np.uint8)
+    print noisy
+    sitk.WriteImage(sitk.GetImageFromArray(output), imageout)
+
+
+def hausdorff_dist(source, target):
+    vol_a = sitk.GetArrayFromImage(sitk.ReadImage(source))
+    vol_b = sitk.GetArrayFromImage(sitk.ReadImage(target))
+    dist_lst = []
+    print len(vol_a)
+    for idx in range(len(vol_a)):
+        dist_min = 1000.0
+        for idx2 in range(len(vol_b)):
+            dist = np.linalg.norm(vol_a[idx]-vol_b[idx2])
+            if dist_min > dist:
+                dist_min = dist
+        dist_lst.append(dist_min)
+    return np.max(dist_lst)
+
+
+def hessian2d_multi(imagein, imageout, sigma_foreground=1.0, sigma_background=0.4, step_size=0.5, number_steps=3):
+    array2d = sitk.GetArrayFromImage(sitk.ReadImage(os.path.join("./input/", imagein))).astype(np.float)
+    if len(array2d.shape) == 3:
+        array2d = np.mean(array2d, -1)
+    p = sigma_background/sigma_foreground
+    #print array2d
+    for i in range(number_steps):
+        kernel = bigaussian_kernel_2d(sigma_foreground + (i * step_size), sigma_foreground + (i * step_size) * p)
+        img_filtered = ndimage.filters.convolve(array2d, kernel)
+        #print img_filtered
+        img_hessian = hessian2d(img_filtered, sigma_foreground + (i * step_size))
+        #print img_hessian
+        img_eigen = np.clip(max_eigenvalue_magnitude_2d(img_hessian), 0, 255)
+       # print img_eigen
+        print np.max(img_eigen), np.min(img_eigen)
+        img_eigen = img_eigen.astype(np.uint8)
+        print np.max(img_eigen), np.min(img_eigen)
+        sitk.WriteImage(sitk.GetImageFromArray(img_eigen.astype(np.uint8)), os.path.join("./output/", "hessian"+str(i)+imageout))
 
 def multiscale3DBG_step(image, kernel, i, sigma, return_dict):
     """Single iteration of 3D bigaussian filter, stores the output in the return_dict list"""
