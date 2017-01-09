@@ -3,55 +3,33 @@ __author__ = 'Vojtech Vozab'
 import bigaussian
 import argparse
 import multiprocessing
-import os.path
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='A lineness filter for 2D and 3D images.')
-    parser.add_argument('input', help='filename')
-    parser.add_argument('output')
-    parser.add_argument('--dimensions', '-d', choices=['2d', '3d', '2D', '3D'], help='Switch between 2D mode and 3D mode. When '
-                                                                           'omitted, files ending with .mha are expected'
-                                                                           'to be 3D, everything else 2D.')
+    parser = argparse.ArgumentParser(description='A lineness filter for 3D images.')
+    parser.add_argument('input', help='input filename')
+    parser.add_argument('output', help='output filename')
     parser.add_argument('--params', '-p', metavar='X', type=float, nargs=4, help='Filter parameters - foreground sigma and '
                                                                              'background sigma for bigaussian, number of '
-                                                                             'multiscale steps and the sigma size by which'
-                                                                             'the bigaussian gets enlarged each step, '
+                                                                             'multiscale steps and the value by which'
+                                                                             'sigma gets enlarged each step, '
                                                                              'in this order. If omitted, the default '
-                                                                             'parameters are 1.0 0.4 3 0.2')
-    parser.add_argument('--multiprocessing', '-m', choices=['y', 'n'], default='y', help='Switch multiprocessing off/on. Parallel '
-                                                                            'version is in general faster for multiscale computations '
-                                                                            'that take more than a couple seconds but needs'
-                                                                            ' x times more memory, where x is the number'
-                                                                            'of multiscale steps.')
+                                                                             'parameters are 3 1.5 1 0.5')
+    parser.add_argument('--kernel', '-k', choices=['bigaussian', 'gaussian'], help='Choose between smoothing kernels, valid '
+                                                                                   'options are bigaussian (default) or gaussian.')
+    parser.add_argument('--vesselness', '-v', choices=['bigaussian', 'frangi', 'sato'], help='Choose between vesselness functions, valid'
+                                                                                             'options are bigaussian (default), frangi or sato.')
     multiprocessing.freeze_support()
-    bigaussian.frangi_filter3d("./input/hgauss15.mha", "./hgauss15_frangi.mha", 1.5, 1, 3)
-    os._exit(0)
     args = parser.parse_args()
-    if args.dimensions is None:
-        extension = os.path.splitext(args.input)[1].strip().lower()
-        if extension == '.mha':
-            args.dimensions = '3D'
-        else:
-            args.dimensions = '2D'
-    if args.dimensions.upper() == '2D':
-        if args.params is None:
-            if args.multiprocessing == 'y':
-                bigaussian.parallel_filter2d(args.input, args.output)
-            else:
-                bigaussian.bigaussian_filter2d(args.input, args.output)
-        else:
-            if args.multiprocessing == 'y':
-                bigaussian.parallel_filter2d(args.input, args.output, args.params[0], args.params[1], args.params[3], int(args.params[2]))
-            else:
-                bigaussian.bigaussian_filter2d(args.input, args.output, args.params[0], args.params[1], args.params[3], int(args.params[2]))
-    if args.dimensions.upper() == '3D':
-        if args.params is None:
-            if args.multiprocessing == 'y':
-                bigaussian.parallel_filter3d(args.input, args.output)
-            else:
-                bigaussian.bigaussian_filter3d(args.input, args.output)
-        else:
-            if args.multiprocessing == 'y':
-                bigaussian.parallel_filter3d(args.input, args.output, args.params[0], args.params[1], args.params[3], int(args.params[2]))
-            else:
-                bigaussian.bigaussian_filter3d(args.input, args.output, args.params[0], args.params[1], args.params[3], int(args.params[2]))
+    if args.params is None:
+        args.params = [3, 1.5, 1, 0.5]
+    if args.kernel == 'gaussian':
+        kernel_param = bigaussian.gaussian_kernel_3d
+    else:
+        kernel_param = bigaussian.bigaussian_kernel_3d
+    if args.vesselness == 'sato':
+        vesselness_param = bigaussian.lineness_sato_3d
+    elif args.vesselness == 'frangi':
+        vesselness_param = bigaussian.lineness_frangi_3d
+    else:
+        vesselness_param = bigaussian.lineness_bg_3d
+    bigaussian.general_filter_3d(args.input, args.output, kernel_param, vesselness_param, args.params[0], args.params[1], args.params[3], int(args.params[2]))

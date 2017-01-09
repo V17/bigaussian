@@ -1,4 +1,14 @@
 # -*- coding: utf-8 -*-
+# Copyright 2017 Vojtech Vozab
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the
+# License. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific
+# language governing permissions and limitations under the License.
+
+
 __author__ = 'Vojtech Vozab'
 import numpy as np
 import SimpleITK as sitk
@@ -263,28 +273,6 @@ def lineness_sato_3d(eigenvalues):
     return output_a + output_b
 
 
-def multiscale2DBG_step(image, sigmaf, sigmab, i, step, return_dict):
-    """Computes a single scale-step of 2D bigaussian filter, stores the output in the return_dict list"""
-    stime = timeit.default_timer()
-    kernel = bigaussian_kernel_2d(sigmaf + (i * step), sigmab + (i * step / 2))
-    print i+1, "- bigaussian kernel generated in", timeit.default_timer() - stime, "s"
-
-    stime = timeit.default_timer()
-    img_filtered = ndimage.convolve(image, kernel, mode='nearest')
-    print i+1, "- image filtered with bi-gaussian in", timeit.default_timer() - stime, "s"
-
-    stime = timeit.default_timer()
-    img_hessian = hessian2d(img_filtered, sigmaf)
-    print i+1, "- hessian computed in", timeit.default_timer() - stime, "s"
-
-    stime = timeit.default_timer()
-    img_e = max_eigenvalue_magnitude_2d(img_hessian)
-    print i+1, "- eigenvalues and lineness computed in", timeit.default_timer() - stime, "s"
-
-    return_dict.append(img_e)
-    return
-
-
 def rosin_threshold(image):
     """Returns the image threshold using triangle thresholding method."""
     histogram = ndimage.histogram(image, 0, 255, 255)
@@ -313,22 +301,15 @@ def rosin_threshold(image):
 def filter_3d_step(image, kernel, i, sigma, return_dict, lineness):
     """Computes a single scale-step of a 3d filter on an image in the form of a numpy array. Accepts different kernels
     and lineness functions as arguments, stores the output image in return_dict."""
-    #stime = timeit.default_timer()
+
     img_resized = np.pad(image, int((kernel.shape[0] / 2)), mode='reflect')
     img_filtered = signal.fftconvolve(img_resized, kernel, mode='valid')
-    #print i+1, "- image smoothed in", timeit.default_timer() - stime, "s"
 
-    #stime = timeit.default_timer()
     img_hessian = hessian3d(img_filtered, sigma)
-    #print i+1, "- hessian computed in", timeit.default_timer() - stime, "s"
 
-    #stime = timeit.default_timer()
     img_eigenvalues = np.linalg.eigvals(img_hessian).astype(np.float32)
-    #print i+1, "- eigenvalues computed in", timeit.default_timer() - stime, "s"
 
-    #stime = timeit.default_timer()
     img_lineness = lineness(img_eigenvalues).astype(np.float32)
-    #print i+1, "- lineness filter response computed in", timeit.default_timer() - stime, "s"
 
     return_dict[0] = np.maximum(return_dict[0], img_lineness)
     return
@@ -337,13 +318,16 @@ def filter_3d_step(image, kernel, i, sigma, return_dict, lineness):
 def general_filter_3d(imagein, imageout, kernel_function, vesselness_function, sigma_foreground=3, sigma_background=1.5, step_size=0.5, number_steps=1):
     """Applies a multi-scale filter on an image, enhances the contrast (if maximum intensity < 255), saves the output
     and then computes the threshold using max_entropy thresholding and saves the thresholded output."""
+    print "loading image"
     img3d = sitk.GetArrayFromImage(sitk.ReadImage(imagein))
     return_list = list()
     p = float(sigma_background)/float(sigma_foreground)
     image_out = np.zeros_like(img3d, dtype=np.float32)
     return_list.append(image_out)
+    print "filter started"
     stime = timeit.default_timer()
     for i in range(number_steps):
+        print "computing for sigma "+str(sigma_foreground + (i * step_size))
         kernel = kernel_function(sigma_foreground + (i * step_size), (sigma_foreground + (i * step_size)) * p)
         filter_3d_step(img3d, kernel, i, sigma_foreground + (i * step_size), return_list, vesselness_function)
     image_out = return_list[0]
@@ -364,6 +348,7 @@ def general_filter_3d(imagein, imageout, kernel_function, vesselness_function, s
     image_out *= mask
     sitk_img = sitk.GetImageFromArray(image_out.astype(np.uint8))
     sitk.WriteImage(sitk_img, os.path.join("./", filename+"_"+"out"+"_threshold"+suffix))
+    print "output and thresholded output saved"
 
 
 def tprtnr(source, filtered):

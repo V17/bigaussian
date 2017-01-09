@@ -57,7 +57,7 @@ def compare_with_ref(reference, output):
 
 # convert_to_mha("./input/op4.tif", "./input/real_cropped/op4.mha")
 reference_img = "./input/reference.mha"
-input_img = "./input/generated_original/lgauss15.tif"
+input_img = "./input/real_cropped/phosphodefective_cell.tif"
 
-all_filters(input_img, "generated_original/lgauss15_single/lgauss15", 3, 2, 0.5, 1)
-compare_with_ref(reference_img, "./output/generated_original/lgauss15_single/lgauss15")
+all_filters(input_img, "real/p_d_c_2/phosphodefective_cell", 1, 0.5, 0.5, 3)
+#compare_with_ref(reference_img, "./output/generated_original/lgauss5_single/lgauss5")

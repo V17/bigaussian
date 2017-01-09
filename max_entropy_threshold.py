@@ -1,3 +1,6 @@
+import numpy as np
+
+
 def max_entropy_threshold(histogram):
     """
     Implements Kapur-Sahoo-Wong (Maximum Entropy) thresholding method
