@@ -18,6 +18,7 @@ import timeit
 import max_entropy_threshold
 
 
+
 def gaussian_kernel_1d(n, sigma):
     """Generates a 1D gaussian kernel using a built-in filter and a dirac impulse"""
     dirac = np.zeros(n)
@@ -315,14 +316,15 @@ def filter_3d_step(image, kernel, i, sigma, return_dict, lineness):
     return
 
 
-def general_filter_3d(imagein, imageout, kernel_function, vesselness_function, sigma_foreground=3, sigma_background=1.5, step_size=0.5, number_steps=1):
+def general_filter_3d(img3d, kernel_function, vesselness_function, sigma_foreground=3, sigma_background=1.5, step_size=0.5, number_steps=1):
     """Applies a multi-scale filter on an image, enhances the contrast (if maximum intensity < 255), saves the output
-    and then computes the threshold using max_entropy thresholding and saves the thresholded output."""
-    print "loading image"
-    img3d = sitk.GetArrayFromImage(sitk.ReadImage(imagein))
+    and then computes the threshold using max_entropy thresholding and saves the thresholded output.
+    
+    @imagein: numpy array of floats"""
+
     return_list = list()
     p = float(sigma_background)/float(sigma_foreground)
-    image_out = np.zeros_like(img3d, dtype=np.float32)
+    image_out = np.zeros_like(img3d, dtype=np.float64)
     return_list.append(image_out)
     print "filter started"
     stime = timeit.default_timer()
@@ -331,24 +333,18 @@ def general_filter_3d(imagein, imageout, kernel_function, vesselness_function, s
         kernel = kernel_function(sigma_foreground + (i * step_size), (sigma_foreground + (i * step_size)) * p)
         filter_3d_step(img3d, kernel, i, sigma_foreground + (i * step_size), return_list, vesselness_function)
     image_out = return_list[0]
-    image_out = np.clip(image_out, 0, 255)
-    max_value = np.amax(image_out)
-    if max_value < 255:
-        image_out *= (255.0 / max_value)
 
-    sitk_img = sitk.GetImageFromArray(image_out.astype(np.uint8))
     print "filter finished in", timeit.default_timer() - stime, "s"
-    filename, suffix = os.path.splitext(imageout)
-    sitk.WriteImage(sitk_img, filename+"_out"+suffix)
+    return image_out
 
-    histogram = np.histogram(image_out, 255)[0]
-    threshold = max_entropy_threshold.max_entropy_threshold(histogram)
-    mask = image_out > threshold
-    image_out[mask] = 255
-    image_out *= mask
-    sitk_img = sitk.GetImageFromArray(image_out.astype(np.uint8))
-    sitk.WriteImage(sitk_img, os.path.join("./", filename+"_"+"out"+"_threshold"+suffix))
-    print "output and thresholded output saved"
+    #histogram = np.histogram(image_out, 255)[0]
+    #threshold = max_entropy_threshold.max_entropy_threshold(histogram)
+    #mask = image_out > threshold
+    #image_out[mask] = 255
+    #image_out *= mask
+    #sitk_img = sitk.GetImageFromArray(image_out.astype(np.uint8))
+    #sitk.WriteImage(sitk_img, os.path.join("./", filename+"_"+"out"+"_threshold"+suffix))
+    #print "output and thresholded output saved"
 
 
 def tprtnr(source, filtered):

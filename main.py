@@ -2,12 +2,41 @@
 __author__ = 'Vojtech Vozab'
 import bigaussian
 import argparse
-import multiprocessing
+import glob
+import SimpleITK as sitk
+import numpy as np
+import os
+
+
+def process_16bit_folder(path, suffix, kernel_function=bigaussian.bigaussian_kernel_3d, vesselness_function=bigaussian.lineness_bg_3d, sigma_foreground=3, sigma_background=1.5, step_size=0.5, number_steps=1):
+    image_list = glob.glob(path + "*" + suffix)
+    if not image_list:
+        print "no loadable files in folder"
+        return -1
+
+    for image_file in image_list:
+        process_16bit_file(image_file, None, kernel_function, vesselness_function, sigma_foreground, sigma_background, step_size, number_steps)
+
+
+def process_16bit_file(input_file, output_file=None, kernel_function=bigaussian.bigaussian_kernel_3d, vesselness_function=bigaussian.lineness_bg_3d, sigma_foreground=3, sigma_background=1.5, step_size=0.5, number_steps=1):
+    img_3d_float = (sitk.GetArrayFromImage(sitk.ReadImage(input_file)).astype(np.float64)) / 65535
+    if output_file is None:
+        directory, filename = os.path.split(input_file)
+        filename_nosuf, suffix = os.path.splitext(filename)
+        if not os.path.exists(os.path.join(directory, "out")):
+            os.makedirs(os.path.join(directory, "out"))
+        print directory, filename_nosuf, suffix
+        output_file = os.path.join(directory, "out", filename_nosuf)+"_out"+suffix
+
+    output_3d_float = bigaussian.general_filter_3d(img_3d_float, kernel_function, vesselness_function, sigma_foreground, sigma_background, step_size, number_steps)
+    sitk_img = sitk.GetImageFromArray((output_3d_float * 65535).astype(np.uint16))
+    sitk.WriteImage(sitk_img, output_file)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='A lineness filter for 3D images.')
     parser.add_argument('input', help='input filename')
-    parser.add_argument('output', help='output filename')
+    parser.add_argument('--output', '-o', help='output filename')
     parser.add_argument('--params', '-p', metavar='X', type=float, nargs=4, help='Filter parameters - foreground sigma and '
                                                                              'background sigma for bigaussian, number of '
                                                                              'multiscale steps and the value by which'
@@ -18,7 +47,6 @@ if __name__ == '__main__':
                                                                                    'options are bigaussian (default) or gaussian.')
     parser.add_argument('--vesselness', '-v', choices=['bigaussian', 'frangi', 'sato'], help='Choose between vesselness functions, valid'
                                                                                              'options are bigaussian (default), frangi or sato.')
-    multiprocessing.freeze_support()
     args = parser.parse_args()
     if args.params is None:
         args.params = [3, 1.5, 1, 0.5]
@@ -32,4 +60,4 @@ if __name__ == '__main__':
         vesselness_param = bigaussian.lineness_frangi_3d
     else:
         vesselness_param = bigaussian.lineness_bg_3d
-    bigaussian.general_filter_3d(args.input, args.output, kernel_param, vesselness_param, args.params[0], args.params[1], args.params[3], int(args.params[2]))
+    process_16bit_file(args.input, args.output, kernel_param, vesselness_param, args.params[0], args.params[1], args.params[3], int(args.params[2]))
