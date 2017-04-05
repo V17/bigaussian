@@ -13,9 +13,7 @@ __author__ = 'Vojtech Vozab'
 import numpy as np
 import SimpleITK as sitk
 from scipy import ndimage, signal, spatial
-import os
 import timeit
-import max_entropy_threshold
 
 
 
@@ -36,6 +34,20 @@ def gaussian_kernel_2d(sigma, sigma_b, ksize=0):
     dirac = np.zeros((ksize, ksize))
     dirac[(ksize-1)/2, (ksize-1)/2] = 1
     return ndimage.filters.gaussian_filter(dirac, sigma, mode='nearest')
+
+
+def gaussian_kernel_3d_alt(sigma, sigma_b, zratio=1, ksize=0):
+    if ksize == 0:
+        ksize = np.round(6 * sigma - 1)
+    if (ksize % 2) == 0:
+        ksize += 1
+    zgauss = gaussian_kernel_1d(ksize, sigma*zratio)
+    zgauss = zgauss.reshape((zgauss.shape[0], 1, 1))
+    ygauss = np.swapaxes(gaussian_kernel_1d(ksize, sigma).reshape((zgauss.shape[0], 1, 1)), 0, 1)
+    xgauss = np.swapaxes(gaussian_kernel_1d(ksize, sigma).reshape((zgauss.shape[0], 1, 1)), 0, 2)
+    kernel3d = (xgauss/np.sum(xgauss))*(ygauss/np.sum(ygauss))*(zgauss/np.sum(ygauss))
+    kernel3d = kernel3d / np.sum(kernel3d)
+    return kernel3d
 
 
 def gaussian_kernel_3d(sigma, sigma_b, ksize=0):
@@ -175,6 +187,23 @@ def bigaussian_kernel_3d(sigma, sigmab, ksize=0):
     return kernel3d
 
 
+def bigaussian_kernel_3d_alt(sigma, sigma_b, zratio=1, ksize=0):
+    kernel = bigaussian_kernel_3d(sigma, sigma_b, ksize)
+    #if zratio * sigma < 1:  # z size of kernel would be < 5 voxels
+    #    print "z ratio too small, enlarging"
+    #    zratio = 1 / sigma
+    kernel_interp = ndimage.interpolation.zoom(kernel, (zratio, 1, 1), order=1)
+    if kernel_interp.shape[0] % 2 == 0:
+        "z size even, enlarging by 1"
+        if kernel_interp.shape[0] == 2:
+            kernel_interp = ndimage.interpolation.zoom(kernel, (1.0/(kernel.shape[1]/5.0), 1, 1), order=1)
+        else:
+            kernel_interp = ndimage.interpolation.zoom(kernel, (zratio + (1.0/sigma/5.0), 1, 1), order=1)
+
+    print (kernel_interp / np.sum(kernel_interp))[:, 8, 8]
+    return kernel_interp / np.sum(kernel_interp)
+
+
 def hessian2d(image, sigma):
     """Returns a matrix of hessian matrices for each pixel in a 2D image"""
     [dy, dx] = np.gradient(image)
@@ -302,21 +331,23 @@ def rosin_threshold(image):
 def filter_3d_step(image, kernel, i, sigma, return_dict, lineness):
     """Computes a single scale-step of a 3d filter on an image in the form of a numpy array. Accepts different kernels
     and lineness functions as arguments, stores the output image in return_dict."""
-
-    img_resized = np.pad(image, int((kernel.shape[0] / 2)), mode='reflect')
+    xypad = int(kernel.shape[1] / 2)
+    zpad = int(np.round(kernel.shape[0] / 2))
+    print kernel.shape, image.shape
+    img_resized = np.pad(image, [(zpad, zpad), (xypad, xypad), (xypad, xypad)], mode='reflect')
     img_filtered = signal.fftconvolve(img_resized, kernel, mode='valid')
 
     img_hessian = hessian3d(img_filtered, sigma)
 
-    img_eigenvalues = np.linalg.eigvals(img_hessian).astype(np.float32)
+    img_eigenvalues = np.linalg.eigvals(img_hessian).astype(np.float64)
 
-    img_lineness = lineness(img_eigenvalues).astype(np.float32)
+    img_lineness = lineness(img_eigenvalues).astype(np.float64)
 
     return_dict[0] = np.maximum(return_dict[0], img_lineness)
     return
 
 
-def general_filter_3d(img3d, kernel_function, vesselness_function, sigma_foreground=3, sigma_background=1.5, step_size=0.5, number_steps=1):
+def general_filter_3d(img3d, kernel_function, vesselness_function, sigma_foreground=3, sigma_background=1.5, step_size=0.5, number_steps=1, zratio=1):
     """Applies a multi-scale filter on an image, enhances the contrast (if maximum intensity < 255), saves the output
     and then computes the threshold using max_entropy thresholding and saves the thresholded output.
     
@@ -330,7 +361,7 @@ def general_filter_3d(img3d, kernel_function, vesselness_function, sigma_foregro
     stime = timeit.default_timer()
     for i in range(number_steps):
         print "computing for sigma "+str(sigma_foreground + (i * step_size))
-        kernel = kernel_function(sigma_foreground + (i * step_size), (sigma_foreground + (i * step_size)) * p)
+        kernel = kernel_function(sigma_foreground + (i * step_size), (sigma_foreground + (i * step_size)) * p, zratio)
         filter_3d_step(img3d, kernel, i, sigma_foreground + (i * step_size), return_list, vesselness_function)
     image_out = return_list[0]
 
