@@ -199,8 +199,6 @@ def bigaussian_kernel_3d_alt(sigma, sigma_b, zratio=1, ksize=0):
             kernel_interp = ndimage.interpolation.zoom(kernel, (1.0/(kernel.shape[1]/5.0), 1, 1), order=1)
         else:
             kernel_interp = ndimage.interpolation.zoom(kernel, (zratio + (1.0/sigma/5.0), 1, 1), order=1)
-
-    print (kernel_interp / np.sum(kernel_interp))[:, 8, 8]
     return kernel_interp / np.sum(kernel_interp)
 
 
