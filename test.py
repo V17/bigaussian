@@ -55,9 +55,45 @@ def compare_with_ref(reference, output):
     print "modified hausdorff distance =", modified_hausdorff_distance(reference, output+"-bg-gaussian_out_threshold.mha")
 
 
-# convert_to_mha("./input/op4.tif", "./input/real_cropped/op4.mha")
-reference_img = "./input/reference.mha"
-input_img = "./input/real_cropped/phosphodefective_cell.tif"
+def hausdorff_distance(source, target):
+    """Computes the Hausdorff distance of two monochromatic images."""
+    source_array = sitk.GetArrayFromImage(sitk.ReadImage(source))
+    target_array = sitk.GetArrayFromImage(sitk.ReadImage(target))
+    source_list = np.argwhere(source_array)
+    target_list = np.argwhere(target_array)
+    end_dist_ab = np.max(np.amin(spatial.distance.cdist(source_list, target_list), axis=0))
+    end_dist_ba = np.max(np.amin(spatial.distance.cdist(target_list, source_list), axis=0))
+    return max(end_dist_ab, end_dist_ba)
 
-all_filters(input_img, "real/p_d_c_2/phosphodefective_cell", 1, 0.5, 0.5, 3)
+
+def modified_hausdorff_distance(source, target):
+    """Computes the modified Hausdorff distance of two monochromatic images."""
+    source_array = sitk.GetArrayFromImage(sitk.ReadImage(source))
+    target_array = sitk.GetArrayFromImage(sitk.ReadImage(target))
+    source_list = np.argwhere(source_array)
+    target_list = np.argwhere(target_array)
+    end_dist_ab = np.median(np.amin(spatial.distance.cdist(source_list, target_list), axis=0))
+    end_dist_ba = np.median(np.amin(spatial.distance.cdist(target_list, source_list), axis=0))
+    return max(end_dist_ab, end_dist_ba)
+
+
+def tprtnr(source, filtered):
+    """Prints and returns sensitivity and specificity. Source is a perfect (thresholded) output, filtered is a
+    thresholded image being compared."""
+    source_array = sitk.GetArrayFromImage(sitk.ReadImage(source))/255
+    filtered_array = sitk.GetArrayFromImage(sitk.ReadImage(filtered))/255
+    tp = np.sum(np.logical_and(source_array == 1, filtered_array == 1)).astype(np.float)
+    tn = np.sum(np.logical_and(source_array == 0, filtered_array == 0)).astype(np.float)
+    fp = np.sum(np.logical_and(source_array == 0, filtered_array == 1)).astype(np.float)
+    fn = np.sum(np.logical_and(source_array == 1, filtered_array == 0)).astype(np.float)
+    tpr = (tp/(tp+fn))*100
+    tnr = (tn/(tn+fp))*100
+
+    return tpr, tnr
+
+# convert_to_mha("./input/op4.tif", "./input/real_cropped/op4.mha")
+# reference_img = "./input/reference.mha"
+# input_img = "./input/real_cropped/phosphodefective_cell.tif"
+
+# all_filters(input_img, "real/p_d_c_2/phosphodefective_cell", 1, 0.5, 0.5, 3)
 #compare_with_ref(reference_img, "./output/generated_original/lgauss5_single/lgauss5")

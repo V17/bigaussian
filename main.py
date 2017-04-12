@@ -8,7 +8,7 @@ import os
 from skimage import io
 
 
-def process_16bit_folder(path, kernel_function=bigaussian.bigaussian_kernel_3d, vesselness_function=bigaussian.lineness_bg_3d, sigma_foreground=3, sigma_background=1.5, step_size=0.5, number_steps=1, zratio=1):
+def process_16bit_folder(path, kernel_function, vesselness_function, sigma_foreground, sigma_background, step_size, number_steps, zratio):
     suffix = 'tif'
     image_list = glob.glob(path + "*" + suffix)
     if not image_list:
@@ -16,19 +16,40 @@ def process_16bit_folder(path, kernel_function=bigaussian.bigaussian_kernel_3d, 
         return -1
 
     for image_file in image_list:
-        process_16bit_file(image_file, None, kernel_function, vesselness_function, sigma_foreground, sigma_background, step_size, number_steps, zratio)
+        process_16bit_file(image_file, None, bigaussian.bigaussian_kernel_3d_alt, bigaussian.lineness_bg_3d, sigma_foreground, sigma_background,
+                           step_size, number_steps, zratio)
+        process_16bit_file(image_file, None, bigaussian.bigaussian_kernel_3d_alt, bigaussian.lineness_frangi_3d, sigma_foreground, sigma_background,
+                           step_size, number_steps, zratio)
+        process_16bit_file(image_file, None, bigaussian.bigaussian_kernel_3d_alt, bigaussian.lineness_sato_3d, sigma_foreground, sigma_background,
+                           step_size, number_steps, zratio)
+        process_16bit_file(image_file, None, bigaussian.gaussian_kernel_3d_alt, bigaussian.lineness_bg_3d, sigma_foreground, sigma_background,
+                           step_size, number_steps, zratio)
+        process_16bit_file(image_file, None, bigaussian.gaussian_kernel_3d_alt, bigaussian.lineness_frangi_3d, sigma_foreground, sigma_background,
+                           step_size, number_steps, zratio)
+        process_16bit_file(image_file, None, bigaussian.gaussian_kernel_3d_alt, bigaussian.lineness_sato_3d, sigma_foreground, sigma_background,
+                           step_size, number_steps, zratio)
 
 
-def process_16bit_file(input_file, output_file=None, kernel_function=bigaussian.bigaussian_kernel_3d, vesselness_function=bigaussian.lineness_bg_3d, sigma_foreground=3, sigma_background=1.5, step_size=0.5, number_steps=1, zratio=1):
+def process_16bit_file(input_file, output_file, kernel_function, vesselness_function, sigma_foreground, sigma_background, step_size, number_steps, zratio):
     img_3d_float = io.imread(input_file).astype(np.float64) / 65535
+    if kernel_function is bigaussian.bigaussian_kernel_3d_alt:
+        dirname = "out_bg"
+    else:
+        dirname = "out_gauss"
+    if vesselness_function is bigaussian.lineness_bg_3d:
+        dirname = dirname+"_bg"
+    elif vesselness_function is bigaussian.lineness_frangi_3d:
+        dirname = dirname+"_frangi"
+    else:
+        dirname = dirname+"_sato"
     if output_file is None:
         directory, filename = os.path.split(input_file)
         filename_nosuf, suffix = os.path.splitext(filename)
-        if not os.path.exists(os.path.join(directory, "out")):
-            os.makedirs(os.path.join(directory, "out"))
-        print directory, filename_nosuf, suffix
-        output_file = os.path.join(directory, "out", filename_nosuf)+"_out"+suffix
-
+        if not os.path.exists(os.path.join(directory, dirname)):
+            os.makedirs(os.path.join(directory, dirname))
+        print "processing", filename, "for", dirname
+        output_file = os.path.join(directory, dirname, filename_nosuf)+"_out"+suffix
+    print "filter params", sigma_foreground, sigma_background, step_size, number_steps
     output_3d_float = bigaussian.general_filter_3d(img_3d_float, kernel_function, vesselness_function, sigma_foreground, sigma_background, step_size, number_steps, zratio)
     io.imsave(output_file, (output_3d_float * 65535).astype(np.uint16))
 
@@ -53,7 +74,7 @@ if __name__ == '__main__':
     if args.params is None:
         args.params = [3, 1.5, 1, 0.5]
     if args.kernel == 'gaussian':
-        kernel_param = bigaussian.gaussian_kernel_3d_alt
+        kernel_param = bigaussian.gaussian_kernel_3d
     else:
         kernel_param = bigaussian.bigaussian_kernel_3d_alt
     if args.vesselness == 'sato':

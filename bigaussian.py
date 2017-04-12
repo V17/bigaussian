@@ -11,10 +11,12 @@
 
 __author__ = 'Vojtech Vozab'
 import numpy as np
-import SimpleITK as sitk
-from scipy import ndimage, signal, spatial
+from scipy import ndimage, signal
 import timeit
 
+
+def gaussian_1d_function(x, x0, sigma):
+    return np.exp(-np.power((x - x0)/sigma, 2.)/2.)
 
 
 def gaussian_kernel_1d(n, sigma):
@@ -24,69 +26,37 @@ def gaussian_kernel_1d(n, sigma):
     return ndimage.filters.gaussian_filter1d(dirac, sigma)
 
 
-def gaussian_kernel_2d(sigma, sigma_b, ksize=0):
-    """Generates a 2D gaussian kernel using a built-in filter and a dirac impulse. Unused sigma_b argument is
-    here for compatibility with the bi-Gaussian kernel function."""
+def gaussian_kernel_2d(sigma, sigma_b=0, zratio=1, ksize=0):
     if ksize == 0:
         ksize = np.round(6 * sigma - 1)
     if (ksize % 2) == 0:
         ksize += 1
-    dirac = np.zeros((ksize, ksize))
-    dirac[(ksize-1)/2, (ksize-1)/2] = 1
-    return ndimage.filters.gaussian_filter(dirac, sigma, mode='nearest')
+    xgauss = gaussian_kernel_1d(ksize, sigma*zratio)
+    ygauss = gaussian_kernel_1d(ksize, sigma)
+    kernel2d = np.outer(xgauss, ygauss)
+
+    kernel2d = kernel2d / np.sum(kernel2d)
+    return kernel2d
 
 
-def gaussian_kernel_3d_alt(sigma, sigma_b, zratio=1, ksize=0):
+def gaussian_kernel_3d(sigma, sigma_b=0, zratio=1, ksize=0):
     if ksize == 0:
         ksize = np.round(6 * sigma - 1)
     if (ksize % 2) == 0:
         ksize += 1
-    zgauss = gaussian_kernel_1d(ksize, sigma*zratio)
-    zgauss = zgauss.reshape((zgauss.shape[0], 1, 1))
-    ygauss = np.swapaxes(gaussian_kernel_1d(ksize, sigma).reshape((zgauss.shape[0], 1, 1)), 0, 1)
-    xgauss = np.swapaxes(gaussian_kernel_1d(ksize, sigma).reshape((zgauss.shape[0], 1, 1)), 0, 2)
-    kernel3d = (xgauss/np.sum(xgauss))*(ygauss/np.sum(ygauss))*(zgauss/np.sum(ygauss))
+    sigmaz = sigma * zratio
+    if sigma*zratio < 1:
+        sigmaz = 1
+    ksize2 = np.round(6 * sigmaz - 1)
+    if (ksize2 % 2) == 0:
+        ksize2 += 1
+    xgauss = gaussian_kernel_1d(ksize, sigma)
+    ygauss = gaussian_kernel_1d(ksize, sigma)
+    zgauss = gaussian_kernel_1d(ksize2, sigmaz)
+    kernel3d = np.outer(zgauss, ygauss).reshape((ksize2, ksize, 1)) * xgauss
+
     kernel3d = kernel3d / np.sum(kernel3d)
     return kernel3d
-
-
-def gaussian_kernel_3d(sigma, sigma_b, ksize=0):
-    """Generates a 3D gaussian kernel using a built-in filter and a dirac impulse. Unused sigma_b argument is
-    here for compatibility with the bi-Gaussian kernel function."""
-    if ksize == 0:
-        ksize = np.round(6 * sigma - 1)
-    if (ksize % 2) == 0:
-        ksize += 1
-    dirac = np.zeros((ksize, ksize, ksize))
-    dirac[(ksize-1)/2, (ksize-1)/2, (ksize-1)/2] = 1
-    return ndimage.filters.gaussian_filter(dirac, sigma, mode='nearest')
-
-
-def bigaussian_kernel_1d(sigma, sigmab, ksize=0):
-    """Generates a 1D bigaussian kernel"""
-
-    if ksize == 0:
-        ksize = np.round(6 * sigma - 1)
-
-    if sigmab > sigma:
-        print("Invalid arguments, sigmab must be smaller than or equal to sigma")
-        return -1
-
-    if (ksize % 2) == 0:
-        ksize += 1
-
-    c0 = (np.exp(-0.5) / np.sqrt(2*np.pi)) * ((float(sigmab) / float(sigma)) - 1) * (1 / float(sigma))
-    k = (float(sigmab**2) / float(sigma**2))
-
-    kernel = gaussian_kernel_1d(ksize, sigma) + c0
-    kernelb = gaussian_kernel_1d(ksize, sigmab) * k
-
-    kernel[0: ((ksize-1) / 2) - sigma] = kernelb[sigma-sigmab: ((ksize-1) / 2) - sigmab]
-    kernel[((ksize-1) / 2) + sigma: ksize] = kernelb[((ksize-1) / 2) + sigmab: ksize + sigmab - sigma]
-    kernel_sum = sum(kernel)
-    kernel_normalized = kernel / kernel_sum
-
-    return kernel_normalized
 
 
 def bigaussian_kernel_2d(sigma, sigmab, ksize=0):
@@ -109,26 +79,21 @@ def bigaussian_kernel_2d(sigma, sigmab, ksize=0):
     c0 = (np.exp(-0.5) / np.sqrt(2*np.pi)) * ((float(sigmab) / float(sigma)) - 1) * (1 / float(sigma))
     k = (float(sigmab**2) / float(sigma**2))
 
-    kernelf = np.asarray(gaussian_kernel_1d(ksize, sigma)) + c0
-    kernelb = np.asarray(gaussian_kernel_1d(ksize*2, sigmab)) * k
-
     kernel2d = np.zeros([ksize, ksize], dtype=np.float)
 
     for y in range((ksize+1)/2-1, ksize-1):
         for x in range((ksize+1)/2-1, ksize-1):
-            r = np.int(np.floor(np.sqrt((x-((ksize-1)/2))**2 + (y-((ksize-1)/2))**2)))  # distance from the center point
-            u = r + ((ksize*2-1)/2)  # distance from the center point translated into indices for the 1D kernels
-            v = r + ((ksize-1)/2)
+            r = np.sqrt((x-((ksize-1)/2.))**2 + (y-((ksize-1)/2.))**2)  # distance from the center point
             if r >= sigma:
-                kernel2d[y][x] = kernelb[u + sigmab - sigma]
-                kernel2d[ksize-1-y][x] = kernelb[u + sigmab - sigma]
-                kernel2d[y][ksize-1-x] = kernelb[u + sigmab - sigma]
-                kernel2d[ksize-1-y][ksize-1-x] = kernelb[u + sigmab - sigma]
+                kernel2d[y][x] = gaussian_1d_function(r + sigmab - sigma, 0, sigmab) * k
+                kernel2d[ksize-1-y][x] = gaussian_1d_function(r + sigmab - sigma, 0, sigmab) * k
+                kernel2d[y][ksize-1-x] = gaussian_1d_function(r + sigmab - sigma, 0, sigmab) * k
+                kernel2d[ksize-1-y][ksize-1-x] = gaussian_1d_function(r + sigmab - sigma, 0, sigmab) * k
             else:
-                kernel2d[y][x] = kernelf[v]
-                kernel2d[ksize-1-y][x] = kernelf[v]
-                kernel2d[y][ksize-1-x] = kernelf[v]
-                kernel2d[ksize-1-y][ksize-1-x] = kernelf[v]
+                kernel2d[y][x] = gaussian_1d_function(r, 0, sigma) + c0
+                kernel2d[ksize-1-y][x] = gaussian_1d_function(r, 0, sigma) + c0
+                kernel2d[y][ksize-1-x] = gaussian_1d_function(r, 0, sigma) + c0
+                kernel2d[ksize-1-y][ksize-1-x] = gaussian_1d_function(r, 0, sigma) + c0
 
     kernel2d = kernel2d / np.sum(kernel2d)  # normalization
     return kernel2d
@@ -154,34 +119,33 @@ def bigaussian_kernel_3d(sigma, sigmab, ksize=0):
     c0 = (np.exp(-0.5) / np.sqrt(2*np.pi)) * ((float(sigmab) / float(sigma)) - 1) * (1 / float(sigma))
     k = (float(sigmab**2) / float(sigma**2))
 
-    kernelf = gaussian_kernel_1d(ksize, sigma) + c0
-    kernelb = gaussian_kernel_1d(ksize*2, sigmab) * k
     kernel3d = np.zeros([ksize, ksize, ksize])
 
     for y in range((ksize+1)/2-1, ksize-1):
         for x in range((ksize+1)/2-1, ksize-1):
             for z in range((ksize+1)/2-1, ksize-1):
                 r = np.int(np.floor(np.sqrt((x-((ksize-1)/2))**2 + (y-((ksize-1)/2))**2 + (z-((ksize-1)/2))**2)))  # distance from the center point
-                u = r + ((ksize*2-1)/2)  # distance from the center point translated into indices for the 1D kernels
-                v = r + ((ksize-1)/2)
+
                 if r >= sigma:
-                    kernel3d[z][y][x] = kernelb[u + sigmab - sigma]
-                    kernel3d[z][ksize-1-y][x] = kernelb[u + sigmab - sigma]
-                    kernel3d[z][y][ksize-1-x] = kernelb[u + sigmab - sigma]
-                    kernel3d[z][ksize-1-y][ksize-1-x] = kernelb[u + sigmab - sigma]
-                    kernel3d[ksize-1-z][y][x] = kernelb[u + sigmab - sigma]
-                    kernel3d[ksize-1-z][ksize-1-y][x] = kernelb[u + sigmab - sigma]
-                    kernel3d[ksize-1-z][y][ksize-1-x] = kernelb[u + sigmab - sigma]
-                    kernel3d[ksize-1-z][ksize-1-y][ksize-1-x] = kernelb[u + sigmab - sigma]
+                    value = gaussian_1d_function(r + sigmab - sigma, 0, sigmab) * k
+                    kernel3d[z][y][x] = value
+                    kernel3d[z][ksize-1-y][x] = value
+                    kernel3d[z][y][ksize-1-x] = value
+                    kernel3d[z][ksize-1-y][ksize-1-x] = value
+                    kernel3d[ksize-1-z][y][x] = value
+                    kernel3d[ksize-1-z][ksize-1-y][x] = value
+                    kernel3d[ksize-1-z][y][ksize-1-x] = value
+                    kernel3d[ksize-1-z][ksize-1-y][ksize-1-x] = value
                 else:
-                    kernel3d[z][y][x] = kernelf[v]
-                    kernel3d[z][ksize-1-y][x] = kernelf[v]
-                    kernel3d[z][y][ksize-1-x] = kernelf[v]
-                    kernel3d[z][ksize-1-y][ksize-1-x] = kernelf[v]
-                    kernel3d[ksize-1-z][y][x] = kernelf[v]
-                    kernel3d[ksize-1-z][ksize-1-y][x] = kernelf[v]
-                    kernel3d[ksize-1-z][y][ksize-1-x] = kernelf[v]
-                    kernel3d[ksize-1-z][ksize-1-y][ksize-1-x] = kernelf[v]
+                    value = gaussian_1d_function(r, 0, sigma) + c0
+                    kernel3d[z][y][x] = value
+                    kernel3d[z][ksize-1-y][x] = value
+                    kernel3d[z][y][ksize-1-x] = value
+                    kernel3d[z][ksize-1-y][ksize-1-x] = value
+                    kernel3d[ksize-1-z][y][x] = value
+                    kernel3d[ksize-1-z][ksize-1-y][x] = value
+                    kernel3d[ksize-1-z][y][ksize-1-x] = value
+                    kernel3d[ksize-1-z][ksize-1-y][ksize-1-x] = value
 
     kernel3d = kernel3d / np.sum(kernel3d, dtype=np.float)  # normalization
     return kernel3d
@@ -193,12 +157,12 @@ def bigaussian_kernel_3d_alt(sigma, sigma_b, zratio=1, ksize=0):
     #    print "z ratio too small, enlarging"
     #    zratio = 1 / sigma
     kernel_interp = ndimage.interpolation.zoom(kernel, (zratio, 1, 1), order=1)
+    if kernel_interp.shape[0] < 5:
+        kernel_interp = ndimage.interpolation.zoom(kernel, (1.0 / (kernel.shape[1] / 5.0), 1, 1), order=1)
+        "z size < 5, enlarging to 5"
     if kernel_interp.shape[0] % 2 == 0:
         "z size even, enlarging by 1"
-        if kernel_interp.shape[0] == 2:
-            kernel_interp = ndimage.interpolation.zoom(kernel, (1.0/(kernel.shape[1]/5.0), 1, 1), order=1)
-        else:
-            kernel_interp = ndimage.interpolation.zoom(kernel, (zratio + (1.0/sigma/5.0), 1, 1), order=1)
+        kernel_interp = ndimage.interpolation.zoom(kernel, (zratio + (1.0/sigma/5.0), 1, 1), order=1)
     return kernel_interp / np.sum(kernel_interp)
 
 
@@ -301,45 +265,21 @@ def lineness_sato_3d(eigenvalues):
     return output_a + output_b
 
 
-def rosin_threshold(image):
-    """Returns the image threshold using triangle thresholding method."""
-    histogram = ndimage.histogram(image, 0, 255, 255)
-    max_hist_index = np.argmax(histogram)
-    min_hist_array = np.array(np.nonzero(histogram))[-1]
-    min_hist_index = min_hist_array[-1]
-    if min_hist_index < 254:
-        min_hist_index += 1
-    p1 = np.array([max_hist_index, histogram[max_hist_index]])
-    p2 = np.array([min_hist_index, histogram[min_hist_index]])
-    best_idx = -1
-    max_dist = -1
-    for x0 in range(max_hist_index, min_hist_index):
-        y0 = histogram[x0]
-        a = p1 - p2
-        b = np.array([x0, y0]) - p2
-        cross_ab = a[0] * b[1] - b[0] * a[1]
-        d = np.linalg.norm(cross_ab) / np.linalg.norm(a)
-        if d > max_dist:
-            best_idx = x0
-            max_dist = d
-    print "threshold:", best_idx
-    return best_idx
-
-
 def filter_3d_step(image, kernel, i, sigma, return_dict, lineness):
     """Computes a single scale-step of a 3d filter on an image in the form of a numpy array. Accepts different kernels
     and lineness functions as arguments, stores the output image in return_dict."""
     xypad = int(kernel.shape[1] / 2)
     zpad = int(np.round(kernel.shape[0] / 2))
-    print kernel.shape, image.shape
+    print "kernel size:", kernel.shape
     img_resized = np.pad(image, [(zpad, zpad), (xypad, xypad), (xypad, xypad)], mode='reflect')
     img_filtered = signal.fftconvolve(img_resized, kernel, mode='valid')
 
     img_hessian = hessian3d(img_filtered, sigma)
 
-    img_eigenvalues = np.linalg.eigvals(img_hessian).astype(np.float64)
+    img_eigenvalues = np.linalg.eigvals(img_hessian).astype(np.float32)
 
-    img_lineness = lineness(img_eigenvalues).astype(np.float64)
+    img_lineness = lineness(img_eigenvalues).astype(np.float32)
+    print "max value for this step", np.max(img_lineness)
 
     return_dict[0] = np.maximum(return_dict[0], img_lineness)
     return
@@ -374,40 +314,3 @@ def general_filter_3d(img3d, kernel_function, vesselness_function, sigma_foregro
     #sitk_img = sitk.GetImageFromArray(image_out.astype(np.uint8))
     #sitk.WriteImage(sitk_img, os.path.join("./", filename+"_"+"out"+"_threshold"+suffix))
     #print "output and thresholded output saved"
-
-
-def tprtnr(source, filtered):
-    """Prints and returns sensitivity and specificity. Source is a perfect (thresholded) output, filtered is a
-    thresholded image being compared."""
-    source_array = sitk.GetArrayFromImage(sitk.ReadImage(source))/255
-    filtered_array = sitk.GetArrayFromImage(sitk.ReadImage(filtered))/255
-    tp = np.sum(np.logical_and(source_array == 1, filtered_array == 1)).astype(np.float)
-    tn = np.sum(np.logical_and(source_array == 0, filtered_array == 0)).astype(np.float)
-    fp = np.sum(np.logical_and(source_array == 0, filtered_array == 1)).astype(np.float)
-    fn = np.sum(np.logical_and(source_array == 1, filtered_array == 0)).astype(np.float)
-    tpr = (tp/(tp+fn))*100
-    tnr = (tn/(tn+fp))*100
-
-    return tpr, tnr
-
-
-def hausdorff_distance(source, target):
-    """Computes the Hausdorff distance of two monochromatic images."""
-    source_array = sitk.GetArrayFromImage(sitk.ReadImage(source))
-    target_array = sitk.GetArrayFromImage(sitk.ReadImage(target))
-    source_list = np.argwhere(source_array)
-    target_list = np.argwhere(target_array)
-    end_dist_ab = np.max(np.amin(spatial.distance.cdist(source_list, target_list), axis=0))
-    end_dist_ba = np.max(np.amin(spatial.distance.cdist(target_list, source_list), axis=0))
-    return max(end_dist_ab, end_dist_ba)
-
-
-def modified_hausdorff_distance(source, target):
-    """Computes the modified Hausdorff distance of two monochromatic images."""
-    source_array = sitk.GetArrayFromImage(sitk.ReadImage(source))
-    target_array = sitk.GetArrayFromImage(sitk.ReadImage(target))
-    source_list = np.argwhere(source_array)
-    target_list = np.argwhere(target_array)
-    end_dist_ab = np.median(np.amin(spatial.distance.cdist(source_list, target_list), axis=0))
-    end_dist_ba = np.median(np.amin(spatial.distance.cdist(target_list, source_list), axis=0))
-    return max(end_dist_ab, end_dist_ba)
